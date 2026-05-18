@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>订单大看板</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-glow page-glow-left"></div>
+    <div class="page-glow page-glow-right"></div>
+
+    <main class="app-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Publishing Workflow Radar</p>
+          <h1>订单大看板</h1>
+          <p class="hero-description">
+            同时管理出版项目的业务看板和轻量后台，把状态、节点、提醒人、权限和基础配置放进一套工作台。
+          </p>
+        </div>
+
+        <div class="hero-actions">
+          <div class="segmented" id="viewToggle">
+            <button type="button" class="segmented-item is-active" data-view="board">业务看板</button>
+            <button type="button" class="segmented-item" data-view="admin">管理后台</button>
+          </div>
+
+          <div class="identity-panel">
+            <label class="mini-field">
+              <span>当前身份</span>
+              <select id="currentUserSelect"></select>
+            </label>
+
+            <div class="identity-card">
+              <span class="clock-label">当前角色</span>
+              <strong id="currentUserName">--</strong>
+              <span class="identity-role" id="currentUserRole">--</span>
+              <span class="clock-label" style="margin-top: 10px">当前视图时间</span>
+              <strong id="clockDisplay">--</strong>
+            </div>
+          </div>
+
+          <div class="hero-action-row">
+            <button type="button" class="button button-primary" id="newProjectButton">新建项目</button>
+            <button type="button" class="button button-ghost" id="resetDemoButton">重置演示数据</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="notice-bar" id="noticeBar"></section>
+
+      <section class="view-panel" id="boardView">
+        <section class="summary-panel">
+          <div class="summary-grid" id="summaryGrid"></div>
+
+          <aside class="urgent-panel" id="riskSection">
+            <div class="section-head">
+              <div>
+                <p class="section-kicker">优先处理</p>
+                <h2>风险与提醒清单</h2>
+              </div>
+              <button type="button" class="text-button" id="riskFocusButton">聚焦待处理项</button>
+            </div>
+            <div class="urgent-list" id="urgentList"></div>
+          </aside>
+        </section>
+
+        <section class="toolbar">
+          <div class="toolbar-copy">
+            <p class="section-kicker">前台工作台</p>
+            <h2>按阶段查看全部项目</h2>
+          </div>
+          <div class="toolbar-actions">
+            <div class="segmented segmented-compact" id="frontDisplayToggle">
+              <button
+                type="button"
+                class="segmented-item is-active"
+                data-display-mode="project"
+              >
+                按项目显示
+              </button>
+              <button type="button" class="segmented-item" data-display-mode="person">
+                按人员显示
+              </button>
+            </div>
+            <p class="toolbar-note">
+              节点名称来自流程配置；节点备注、时间、提醒人由业务人员按项目实际情况填写。
+            </p>
+            <button
+              type="button"
+              class="button button-muted"
+              id="boardViewButton"
+              style="display: none"
+            >
+              回到看板
+            </button>
+          </div>
+        </section>
+
+        <section class="filter-panel">
+          <label class="field">
+            <span>搜索项目</span>
+            <input
+              id="searchInput"
+              type="search"
+              placeholder="按书名、作者、项目编号搜索"
+              autocomplete="off"
+            />
+          </label>
+
+          <label class="field">
+            <span>负责人</span>
+            <select id="ownerFilter"></select>
+          </label>
+
+          <label class="field">
+            <span>主状态</span>
+            <select id="statusFilter"></select>
+          </label>
+
+          <label class="field">
+            <span>风险等级</span>
+            <select id="riskFilter">
+              <option value="全部">全部</option>
+              <option value="高">高风险</option>
+              <option value="中">中风险</option>
+              <option value="低">低风险</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>更新时间</span>
+            <select id="updateFilter">
+              <option value="全部">全部</option>
+              <option value="7天未更新">7天未更新</option>
+              <option value="3天内更新">3天内更新</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>提醒状态</span>
+            <select id="reminderFilter">
+              <option value="全部">全部</option>
+              <option value="待提醒">待提醒</option>
+              <option value="今日提醒">今日提醒</option>
+            </select>
+          </label>
+
+          <button type="button" class="button button-secondary" id="resetFiltersButton">
+            重置筛选
+          </button>
+        </section>
+
+        <section class="board-stage" id="boardSection">
+          <div class="board-head">
+            <div>
+              <p class="section-kicker">看板总览</p>
+              <h2>项目阶段分布</h2>
+            </div>
+            <p class="board-meta" id="boardMeta">--</p>
+          </div>
+          <div class="board-grid" id="boardGrid"></div>
+        </section>
+
+        <section class="board-stage" id="personBoardSection">
+          <div class="board-head">
+            <div>
+              <p class="section-kicker">人员看板</p>
+              <h2>按人员查看当前项目负载</h2>
+            </div>
+            <p class="board-meta" id="personBoardMeta">--</p>
+          </div>
+          <div class="person-board-grid" id="personBoardGrid"></div>
+        </section>
+      </section>
+
+      <section class="view-panel is-hidden" id="adminView">
+        <section class="summary-panel admin-summary">
+          <div class="summary-grid" id="adminSummaryGrid"></div>
+
+          <aside class="urgent-panel">
+            <div class="section-head">
+              <div>
+                <p class="section-kicker">后台导航</p>
+                <h2>配置与管理模块</h2>
+              </div>
+            </div>
+            <div class="admin-nav" id="adminTabNav"></div>
+          </aside>
+        </section>
+
+        <section class="board-stage admin-stage">
+          <div class="board-head">
+            <div>
+              <p class="section-kicker">轻量后台</p>
+              <h2 id="adminTitle">后台概览</h2>
+            </div>
+            <p class="board-meta" id="adminMeta">--</p>
+          </div>
+          <div id="adminContent"></div>
+        </section>
+      </section>
+    </main>
+
+    <aside class="drawer" id="detailDrawer" aria-hidden="true">
+      <div class="drawer-backdrop" id="drawerBackdrop"></div>
+      <div class="drawer-panel">
+        <button type="button" class="drawer-close" id="drawerCloseButton" aria-label="关闭详情">
+          ×
+        </button>
+        <div id="drawerContent"></div>
+      </div>
+    </aside>
+
+    <div class="modal" id="projectModal" aria-hidden="true">
+      <div class="modal-backdrop" id="modalBackdrop"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <div>
+            <p class="section-kicker">项目录入</p>
+            <h2 id="modalTitle">新建项目</h2>
+          </div>
+          <button type="button" class="drawer-close" id="modalCloseButton" aria-label="关闭表单">
+            ×
+          </button>
+        </div>
+
+        <form id="projectForm" class="project-form">
+          <input type="hidden" id="formInternalId" />
+
+          <div class="form-grid">
+            <label class="field">
+              <span>书名</span>
+              <input id="formTitle" type="text" required />
+            </label>
+
+            <label class="field">
+              <span>作者</span>
+              <input id="formAuthor" type="text" required />
+            </label>
+
+            <label class="field">
+              <span>项目编号</span>
+              <input id="formCode" type="text" required />
+            </label>
+
+            <label class="field">
+              <span>负责人</span>
+              <input id="formOwner" type="text" required />
+            </label>
+
+            <label class="field">
+              <span>合作方 / 客户</span>
+              <select id="formPartner"></select>
+            </label>
+
+            <label class="field">
+              <span>主状态</span>
+              <select id="formStatus" required></select>
+            </label>
+
+            <label class="field">
+              <span>当前节点</span>
+              <select id="formCurrentNode" required></select>
+            </label>
+
+            <label class="field">
+              <span>计划完成日期</span>
+              <input id="formPlanFinish" type="date" required />
+            </label>
+
+            <label class="field">
+              <span>当前节点提醒人</span>
+              <input id="formReminderPerson" type="text" placeholder="例如：陈敏" />
+            </label>
+
+            <label class="field">
+              <span>提醒日期</span>
+              <input id="formReminderDate" type="date" />
+            </label>
+          </div>
+
+          <label class="field field-full">
+            <span>项目摘要</span>
+            <textarea id="formSummary" rows="3" placeholder="例如：重点项目、当前风险背景、协作说明"></textarea>
+          </label>
+
+          <label class="field field-full">
+            <span>下一步动作</span>
+            <input id="formNextAction" type="text" placeholder="例如：催作者确认二校眉批" />
+          </label>
+
+          <label class="field field-full">
+            <span>风险说明</span>
+            <textarea
+              id="formRiskNote"
+              rows="4"
+              placeholder="例如：样书排期紧，需要本周锁定封面工艺"
+            ></textarea>
+          </label>
+
+          <div class="modal-actions">
+            <button type="button" class="button button-ghost" id="modalCancelButton">取消</button>
+            <button type="submit" class="button button-primary">保存项目</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="adminModal" aria-hidden="true">
+      <div class="modal-backdrop" id="adminModalBackdrop"></div>
+      <div class="modal-panel modal-panel-wide">
+        <div class="modal-head">
+          <div>
+            <p class="section-kicker">后台配置</p>
+            <h2 id="adminModalTitle">配置项</h2>
+          </div>
+          <button
+            type="button"
+            class="drawer-close"
+            id="adminModalCloseButton"
+            aria-label="关闭后台弹窗"
+          >
+            ×
+          </button>
+        </div>
+        <div id="adminModalContent"></div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
