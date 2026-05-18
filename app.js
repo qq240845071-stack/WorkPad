@@ -91,6 +91,21 @@ const PROJECT_BLUEPRINTS = [
   ["BK-2026-012", "给孩子的印刷小百科", "陶溪", "刘珂", "星图少儿", "作者沟通中", "作者沟通", -12, 14, -182, "确认插图授权范围与补充采访时间", "已连续 7 天未更新，需要尽快推进作者确认。", "少儿百科，信息量大，资料和图片授权同步推进。", "刘珂", 0],
 ];
 
+const ROLE_KEY_MAP = {
+  超级管理员: "admin",
+  项目主管: "manager",
+  编辑: "editor",
+  协同支持: "support",
+};
+
+const ADMIN_TAB_RULES = {
+  overview: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
+  users: ["管理人员"],
+  permissions: ["管理权限"],
+  partners: ["管理合作方"],
+  workflow: ["管理流程节点"],
+};
+
 const state = {
   projects: [],
   teamMembers: [],
@@ -449,13 +464,37 @@ function riskChip(level) {
   return level === "高" ? "chip chip-risk-high" : level === "中" ? "chip chip-risk-medium" : "chip chip-risk-low";
 }
 
+function roleKey(role) {
+  return ROLE_KEY_MAP[role] || "editor";
+}
+
 function currentUser() {
   return state.teamMembers.find((item) => item.id === state.currentUserId) || state.teamMembers[0];
 }
 
+function hasPermission(label, user = currentUser()) {
+  const row = state.permissionRows.find((item) => item.label === label);
+  return row ? row.values[roleKey(user.role)] === "是" : false;
+}
+
+function visibleProjects(user = currentUser()) {
+  if (hasPermission("查看全部项目", user)) return state.projects;
+  return state.projects.filter((project) => project.owner === user.name || project.reminderPerson === user.name);
+}
+
+function canAccessAdmin(user = currentUser()) {
+  return Object.values(ADMIN_TAB_RULES).flat().some((label) => hasPermission(label, user));
+}
+
+function allowedAdminTabs(user = currentUser()) {
+  return Object.entries(ADMIN_TAB_RULES)
+    .filter(([, labels]) => labels.some((label) => hasPermission(label, user)))
+    .map(([key]) => key);
+}
+
 function filteredProjects() {
   const search = state.filters.search.trim().toLowerCase();
-  return state.projects.filter((project) => {
+  return visibleProjects().filter((project) => {
     const risk = getProjectRisk(project);
     const matchesSearch = !search || [project.title, project.author, project.code].some((item) => String(item).toLowerCase().includes(search));
     const matchesOwner = state.filters.owner === "全部" || project.owner === state.filters.owner;
@@ -485,7 +524,7 @@ function renderIdentity() {
 }
 
 function syncFiltersAndForm() {
-  const owners = [...new Set(state.teamMembers.map((item) => item.name).concat(state.projects.map((item) => item.owner)))].sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+  const owners = [...new Set(state.teamMembers.map((item) => item.name).concat(visibleProjects().map((item) => item.owner)))].sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
   elements.ownerFilter.innerHTML = [`<option value="全部">全部负责人</option>`, ...owners.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`)].join("");
   elements.ownerFilter.value = state.filters.owner;
   elements.statusFilter.innerHTML = [`<option value="全部">全部状态</option>`, ...STATUS_ORDER.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`)].join("");
@@ -493,6 +532,8 @@ function syncFiltersAndForm() {
   elements.formStatus.innerHTML = STATUS_ORDER.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
   elements.formCurrentNode.innerHTML = NODE_ORDER.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
   elements.formPartner.innerHTML = [`<option value="">未选择合作方</option>`, ...getPartners().map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`)].join("");
+  elements.newProjectButton.disabled = !hasPermission("编辑项目状态");
+  elements.newProjectButton.title = hasPermission("编辑项目状态") ? "" : "当前身份没有项目编辑权限";
 }
 
 function renderNoticeBar() {
@@ -500,10 +541,11 @@ function renderNoticeBar() {
   const myProjects = state.projects.filter((item) => item.owner === user.name && !["已完成", "已暂停"].includes(item.status)).length;
   const myReminders = state.projects.filter((item) => item.reminderPerson === user.name && reminderStatus(item) === "今日提醒").length;
   const highRisk = state.projects.filter((item) => getProjectRisk(item).level === "高").length;
+  const adminHint = canAccessAdmin(user) ? "可进入后台管理配置" : "当前身份只开放业务看板操作";
   elements.noticeBar.innerHTML = `
     <div class="notice-item">
       <strong>${escapeHtml(user.name)} 当前在跟 ${myProjects} 个项目，今天有 ${myReminders} 个待提醒事项。</strong>
-      <span class="mini-text">当前身份：${escapeHtml(user.role)}</span>
+      <span class="mini-text">当前身份：${escapeHtml(user.role)} · ${escapeHtml(adminHint)}</span>
     </div>
     <div class="notice-item">
       <strong>系统当前识别出 ${highRisk} 个高风险项目，建议优先查看风险与提醒清单。</strong>
@@ -554,7 +596,8 @@ function renderUrgentList(projects) {
 }
 
 function renderBoard(projects) {
-  elements.boardMeta.textContent = `共 ${state.projects.length} 个项目，当前显示 ${projects.length} 个`;
+  const scopedProjects = visibleProjects();
+  elements.boardMeta.textContent = `当前身份可见 ${scopedProjects.length} 个项目，筛选后显示 ${projects.length} 个`;
   elements.boardGrid.innerHTML = STATUS_ORDER.map((status) => {
     const list = projects.filter((item) => item.status === status);
     const meta = STATUS_META[status];
@@ -598,12 +641,13 @@ function renderBoard(projects) {
 
 function renderPersonBoard(projects) {
   const members = state.teamMembers;
+  const scopedProjects = visibleProjects();
   const busy = members.filter((member) => projects.some((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status))).length;
   elements.personBoardMeta.textContent = `共 ${members.length} 位成员，当前有 ${busy} 位成员手上有在途项目`;
   elements.personBoardGrid.innerHTML = members.map((member) => {
     const myProjects = projects.filter((item) => item.owner === member.name && !["已完成"].includes(item.status));
     const highRisk = myProjects.filter((item) => getProjectRisk(item).level === "高").length;
-    const reminders = state.projects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length;
+    const reminders = scopedProjects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length;
     return `
       <article class="person-card">
         <div class="person-card-top">
@@ -656,14 +700,27 @@ function renderAdminNav() {
     ["partners", "合作方管理", "合作方主数据和项目引用"],
     ["workflow", "流程节点配置", "节点说明、提醒角色和标准节奏"],
   ];
-  elements.adminTabNav.innerHTML = tabs.map(([key, title, desc]) => `
+  const visibleTabs = tabs.filter(([key]) => allowedAdminTabs().includes(key));
+  elements.adminTabNav.innerHTML = visibleTabs.map(([key, title, desc]) => `
     <button type="button" class="admin-nav-button ${state.adminTab === key ? "is-active" : ""}" data-admin-tab="${key}">
       <strong>${escapeHtml(title)}</strong>
       <span class="mini-text">${escapeHtml(desc)}</span>
-    </button>`).join("");
+    </button>`).join("") || `<div class="empty-state">当前身份没有后台配置权限。</div>`;
 }
 
 function renderAdminContent() {
+  if (!canAccessAdmin()) {
+    elements.adminTitle.textContent = "后台权限未开放";
+    elements.adminMeta.textContent = "当前身份可以继续使用前台看板，但不能进入配置区。";
+    elements.adminContent.innerHTML = `
+      <div class="data-panel-stack">
+        <section class="settings-panel">
+          <h3>当前状态</h3>
+          <div class="mini-text">人员、权限、合作方和流程节点配置只对有权限的角色开放。现在可以在右上角切换为管理员或项目主管继续演示。</div>
+        </section>
+      </div>`;
+    return;
+  }
   const titles = {
     overview: ["后台概览", "适合先确认人员、合作方、权限和流程节点是否齐。"],
     users: ["人员录入", `当前共 ${state.teamMembers.length} 名成员。`],
@@ -697,6 +754,7 @@ function renderAdminContent() {
   }
 
   if (state.adminTab === "users") {
+    const canManageUsers = hasPermission("管理人员");
     elements.adminContent.innerHTML = `
       <div class="data-panel-stack">
         <section class="data-panel">
@@ -705,7 +763,7 @@ function renderAdminContent() {
               <h3>成员列表</h3>
               <div class="mini-text">支持新增、编辑和切换身份。</div>
             </div>
-            <button type="button" class="button button-primary" data-admin-action="add-user">新增人员</button>
+            <button type="button" class="button button-primary" data-admin-action="add-user" ${canManageUsers ? "" : "disabled"}>新增人员</button>
           </div>
         </section>
       </div>
@@ -720,7 +778,7 @@ function renderAdminContent() {
                 <td>${escapeHtml(member.department)}</td>
                 <td>${state.projects.filter((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status)).length}</td>
                 <td>${state.projects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length}</td>
-                <td><button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}">编辑</button></td>
+                <td><button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>编辑</button></td>
               </tr>`).join("")}
           </tbody>
         </table>
@@ -729,6 +787,7 @@ function renderAdminContent() {
   }
 
   if (state.adminTab === "permissions") {
+    const canManagePermissions = hasPermission("管理权限");
     elements.adminContent.innerHTML = `
       <div class="permission-panel">
         <table class="permission-table">
@@ -738,10 +797,10 @@ function renderAdminContent() {
               <tr>
                 <td>${escapeHtml(row.label)}</td>
                 <td>${escapeHtml(row.description)}</td>
-                <td><input type="checkbox" ${row.values.admin === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="admin" /></td>
-                <td><input type="checkbox" ${row.values.manager === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="manager" /></td>
-                <td><input type="checkbox" ${row.values.editor === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="editor" /></td>
-                <td><input type="checkbox" ${row.values.support === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="support" /></td>
+                <td><input type="checkbox" ${row.values.admin === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="admin" ${canManagePermissions ? "" : "disabled"} /></td>
+                <td><input type="checkbox" ${row.values.manager === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="manager" ${canManagePermissions ? "" : "disabled"} /></td>
+                <td><input type="checkbox" ${row.values.editor === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="editor" ${canManagePermissions ? "" : "disabled"} /></td>
+                <td><input type="checkbox" ${row.values.support === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="support" ${canManagePermissions ? "" : "disabled"} /></td>
               </tr>`).join("")}
           </tbody>
         </table>
@@ -750,6 +809,7 @@ function renderAdminContent() {
   }
 
   if (state.adminTab === "partners") {
+    const canManagePartners = hasPermission("管理合作方");
     elements.adminContent.innerHTML = `
       <div class="data-panel-stack">
         <section class="data-panel">
@@ -758,7 +818,7 @@ function renderAdminContent() {
               <h3>合作方主数据</h3>
               <div class="mini-text">项目录入时通过下拉选择进入。</div>
             </div>
-            <button type="button" class="button button-primary" data-admin-action="add-partner">新增合作方</button>
+            <button type="button" class="button button-primary" data-admin-action="add-partner" ${canManagePartners ? "" : "disabled"}>新增合作方</button>
           </div>
         </section>
       </div>
@@ -775,7 +835,7 @@ function renderAdminContent() {
                   <td>${partnerProjects.length}</td>
                   <td>${highRisk}</td>
                   <td>${partner === "自有项目" ? "内部项目，不对应外部合作方" : "项目录入时通过选择进入"}</td>
-                  <td><button type="button" class="table-action" data-admin-action="edit-partner" data-partner-name="${escapeHtml(partner)}">编辑</button></td>
+                  <td><button type="button" class="table-action" data-admin-action="edit-partner" data-partner-name="${escapeHtml(partner)}" ${canManagePartners ? "" : "disabled"}>编辑</button></td>
                 </tr>`;
             }).join("")}
           </tbody>
@@ -784,6 +844,7 @@ function renderAdminContent() {
     return;
   }
 
+  const canManageWorkflow = hasPermission("管理流程节点");
   elements.adminContent.innerHTML = `
     <div class="table-wrapper">
       <table>
@@ -792,9 +853,9 @@ function renderAdminContent() {
           ${state.workflowConfig.map((node) => `
             <tr>
               <td>${escapeHtml(node.name)}</td>
-              <td><input type="text" value="${escapeHtml(node.ownerRole)}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="ownerRole" /></td>
-              <td><input type="text" value="${escapeHtml(node.reminderRole)}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="reminderRole" /></td>
-              <td><input type="number" value="${node.cycle}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="cycle" /></td>
+              <td><input type="text" value="${escapeHtml(node.ownerRole)}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="ownerRole" ${canManageWorkflow ? "" : "disabled"} /></td>
+              <td><input type="text" value="${escapeHtml(node.reminderRole)}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="reminderRole" ${canManageWorkflow ? "" : "disabled"} /></td>
+              <td><input type="number" value="${node.cycle}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="cycle" ${canManageWorkflow ? "" : "disabled"} /></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -810,6 +871,7 @@ function renderDrawer() {
     return;
   }
   const risk = getProjectRisk(project);
+  const canEditProject = hasPermission("编辑项目状态");
   elements.drawerContent.innerHTML = `
     <div class="drawer-content">
       <header class="drawer-header">
@@ -837,9 +899,9 @@ function renderDrawer() {
       <section class="detail-card">
         <h3>风险与动作</h3>
         <div class="detail-actions">
-          <button type="button" class="button button-secondary" data-drawer-action="edit">编辑项目</button>
-          <button type="button" class="button button-secondary" data-drawer-action="pause">${project.status === "已暂停" ? "恢复项目" : "暂停项目"}</button>
-          <button type="button" class="button button-primary" data-drawer-action="complete">标记完成</button>
+          <button type="button" class="button button-secondary" data-drawer-action="edit" ${canEditProject ? "" : "disabled"}>编辑项目</button>
+          <button type="button" class="button button-secondary" data-drawer-action="pause" ${canEditProject ? "" : "disabled"}>${project.status === "已暂停" ? "恢复项目" : "暂停项目"}</button>
+          <button type="button" class="button button-primary" data-drawer-action="complete" ${canEditProject ? "" : "disabled"}>标记完成</button>
         </div>
         <p class="mini-text">${escapeHtml(risk.reasons.join(" / "))}</p>
       </section>
@@ -859,6 +921,7 @@ function closeDrawer() {
 }
 
 function openModal(project) {
+  if (!hasPermission("编辑项目状态")) return;
   const current = project || null;
   elements.modalTitle.textContent = current ? "编辑项目" : "新建项目";
   elements.formInternalId.value = current ? current.id : "";
@@ -886,6 +949,8 @@ function closeModal() {
 }
 
 function openAdminModal(mode, payload) {
+  if (mode === "user" && !hasPermission("管理人员")) return;
+  if (mode === "partner" && !hasPermission("管理合作方")) return;
   state.adminEditingMode = mode;
   state.adminEditingId = payload?.id || payload || "";
   if (mode === "user") {
@@ -936,6 +1001,7 @@ function closeAdminModal() {
 }
 
 function saveProjectFromForm() {
+  if (!hasPermission("编辑项目状态")) return;
   const now = new Date();
   const existing = state.projects.find((item) => item.id === elements.formInternalId.value);
   const status = elements.formStatus.value;
@@ -978,6 +1044,7 @@ function resetFilters() {
 }
 
 function handleDrawerAction(action) {
+  if (!hasPermission("编辑项目状态")) return;
   const current = state.projects.find((item) => item.id === state.selectedProjectId);
   if (!current) return;
   if (action === "edit") {
@@ -1022,10 +1089,18 @@ function renamePartnerAcrossProjects(previousName, nextName) {
 }
 
 function renderViewState() {
+  const adminAvailable = canAccessAdmin();
+  if (!adminAvailable && state.currentView === "admin") {
+    state.currentView = "board";
+  }
   elements.boardView.classList.toggle("is-hidden", state.currentView !== "board");
   elements.adminView.classList.toggle("is-hidden", state.currentView !== "admin");
   [...elements.viewToggle.querySelectorAll("[data-view]")].forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === state.currentView);
+    if (button.dataset.view === "admin") {
+      button.disabled = !adminAvailable;
+      button.title = adminAvailable ? "" : "当前身份没有后台配置权限";
+    }
   });
   [...elements.frontDisplayToggle.querySelectorAll("[data-display-mode]")].forEach((button) => {
     button.classList.toggle("is-active", button.dataset.displayMode === state.displayMode);
@@ -1035,6 +1110,8 @@ function renderViewState() {
 }
 
 function render() {
+  const tabs = allowedAdminTabs();
+  if (canAccessAdmin() && !tabs.includes(state.adminTab)) state.adminTab = tabs[0];
   renderClock();
   renderIdentity();
   syncFiltersAndForm();
@@ -1055,6 +1132,7 @@ function attachEvents() {
   elements.viewToggle.addEventListener("click", (event) => {
     const button = event.target.closest("[data-view]");
     if (!button) return;
+    if (button.dataset.view === "admin" && !canAccessAdmin()) return;
     state.currentView = button.dataset.view;
     render();
   });
@@ -1128,6 +1206,7 @@ function attachEvents() {
   elements.adminTabNav.addEventListener("click", (event) => {
     const button = event.target.closest("[data-admin-tab]");
     if (!button) return;
+    if (!allowedAdminTabs().includes(button.dataset.adminTab)) return;
     state.adminTab = button.dataset.adminTab;
     render();
   });
@@ -1144,12 +1223,14 @@ function attachEvents() {
   elements.adminContent.addEventListener("change", (event) => {
     const target = event.target;
     if (target.dataset.permissionIndex) {
+      if (!hasPermission("管理权限")) return;
       const row = state.permissionRows[Number(target.dataset.permissionIndex)];
       row.values[target.dataset.permissionRole] = target.checked ? "是" : "否";
       saveSettings();
       return;
     }
     if (target.dataset.workflowIndex) {
+      if (!hasPermission("管理流程节点")) return;
       const item = state.workflowConfig[Number(target.dataset.workflowIndex)];
       item[target.dataset.workflowField] = target.dataset.workflowField === "cycle" ? Number(target.value) || 0 : target.value;
       saveSettings();
@@ -1178,6 +1259,7 @@ function attachEvents() {
   elements.adminModalContent.addEventListener("submit", (event) => {
     event.preventDefault();
     if (event.target.id === "adminUserForm") {
+      if (!hasPermission("管理人员")) return;
       const formData = new FormData(event.target);
       const existing = state.teamMembers.find((item) => item.id === state.adminEditingId);
       const nextName = String(formData.get("name") || "").trim();
@@ -1196,6 +1278,7 @@ function attachEvents() {
       render();
     }
     if (event.target.id === "adminPartnerForm") {
+      if (!hasPermission("管理合作方")) return;
       const formData = new FormData(event.target);
       const nextName = String(formData.get("name") || "").trim();
       const previousName = String(state.adminEditingId || "");
