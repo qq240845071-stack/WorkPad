@@ -2,6 +2,8 @@
 
 这个小服务用来解决 Vercel Serverless 出口 IP 变化导致企业微信 `60020 not allow to access from your ip` 的问题。
 
+完整阿里云部署步骤见：`DEPLOY.md`。
+
 ## 工作方式
 
 1. WorkPad 主站继续部署在 Vercel。
