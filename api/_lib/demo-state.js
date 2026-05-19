@@ -14,12 +14,12 @@ const STATUS_ORDER = [
 const NODE_ORDER = ["作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", "尾印单"];
 
 const TEAM_MEMBERS = [
-  { id: "user-zhou", name: "周雯", role: "超级管理员", department: "出版一组", wecomUserId: "zhouwen" },
-  { id: "user-xu", name: "许畅", role: "项目主管", department: "出版二组", wecomUserId: "xuchang" },
-  { id: "user-wang", name: "王黎", role: "编辑", department: "出版二组", wecomUserId: "wangli" },
-  { id: "user-liu", name: "刘珂", role: "编辑", department: "少儿编辑部", wecomUserId: "liuke" },
-  { id: "user-chen", name: "陈敏", role: "协同支持", department: "法务支持", wecomUserId: "chenmin" },
-  { id: "user-sun", name: "孙妍", role: "协同支持", department: "发行支持", wecomUserId: "sunyan" },
+  { id: "user-zhou", name: "周雯", role: "超级管理员", department: "出版一组", wecomUserId: "" },
+  { id: "user-xu", name: "许畅", role: "项目主管", department: "出版二组", wecomUserId: "" },
+  { id: "user-wang", name: "王黎", role: "编辑", department: "出版二组", wecomUserId: "" },
+  { id: "user-liu", name: "刘珂", role: "编辑", department: "少儿编辑部", wecomUserId: "" },
+  { id: "user-chen", name: "陈敏", role: "协同支持", department: "法务支持", wecomUserId: "" },
+  { id: "user-sun", name: "孙妍", role: "协同支持", department: "发行支持", wecomUserId: "" },
 ];
 
 const DEFAULT_DEPARTMENTS = ["出版一组", "出版二组", "少儿编辑部", "法务支持", "发行支持", "未分配部门"];
