@@ -625,6 +625,13 @@ async function handleIncomingMessage(message) {
     project.reminderPerson = member.name;
     project.reminderDate = command.reminderDate;
     project.nextAction = command.note || project.nextAction;
+    project.reminderNotificationPending = true;
+    project.reminderNotificationStatus = "pending";
+    project.reminderNotificationCreatedAt = new Date().toISOString();
+    project.reminderNotificationSentAt = "";
+    project.reminderNotificationLastError = "";
+    project.reminderNotificationKey = [project.id, member.name, command.reminderDate, command.note || ""].join("|");
+    project.reminderNotificationAttempts = 0;
     updateProjectFollowUp(project, actor, `提醒 ${member.name}：${command.note}`, command.note, "企业微信提醒");
     const sourceTip = source === "ai" ? "已按自然语言解析并写入提醒。" : "";
     const transcriptTip = transcript?.text ? `语音识别：${transcript.text}` : "";

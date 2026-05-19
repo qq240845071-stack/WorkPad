@@ -1771,8 +1771,12 @@ async function saveProjectFromForm() {
   const currentNode = elements.formCurrentNode.value;
   const owner = elements.formOwner.value.trim();
   const reminderDate = dateTimeString(elements.formReminderDate.value || new Date());
+  const reminderPerson = elements.formReminderPerson.value.trim() || owner;
+  const projectId = existing ? existing.id : uid();
+  const reminderKey = [projectId, reminderPerson, reminderDate, elements.formNextAction.value.trim() || ""].join("|");
+  const shouldQueueReminder = !existing || existing.reminderNotificationKey !== reminderKey;
   const project = normalizeProject({
-    id: existing ? existing.id : uid(),
+    id: projectId,
     source: existing ? existing.source : "custom",
     code: elements.formCode.value.trim(),
     title: elements.formTitle.value.trim(),
@@ -1788,9 +1792,16 @@ async function saveProjectFromForm() {
     summary: elements.formSummary.value.trim(),
     nextAction: elements.formNextAction.value.trim(),
     riskNote: elements.formRiskNote.value.trim(),
-    reminderPerson: elements.formReminderPerson.value.trim() || owner,
+    reminderPerson,
     reminderDate,
-    nodes: buildNodes(parseDate(existing ? existing.startDate : now), owner, status, currentNode, elements.formReminderPerson.value.trim() || owner, reminderDate, status === "已暂停" ? currentNode : ""),
+    reminderNotificationPending: shouldQueueReminder ? true : Boolean(existing?.reminderNotificationPending),
+    reminderNotificationStatus: shouldQueueReminder ? "pending" : existing?.reminderNotificationStatus || "",
+    reminderNotificationCreatedAt: shouldQueueReminder ? now.toISOString() : existing?.reminderNotificationCreatedAt || "",
+    reminderNotificationSentAt: shouldQueueReminder ? "" : existing?.reminderNotificationSentAt || "",
+    reminderNotificationLastError: shouldQueueReminder ? "" : existing?.reminderNotificationLastError || "",
+    reminderNotificationKey: reminderKey,
+    reminderNotificationAttempts: shouldQueueReminder ? 0 : Number(existing?.reminderNotificationAttempts || 0),
+    nodes: buildNodes(parseDate(existing ? existing.startDate : now), owner, status, currentNode, reminderPerson, reminderDate, status === "已暂停" ? currentNode : ""),
     followUps: [{ time: dateTimeString(now), user: owner, progress: existing ? "更新了项目信息" : "创建了项目", nextAction: elements.formNextAction.value.trim() || "待补充下一步动作" }, ...(existing?.followUps || [])],
     logs: [{ time: dateTimeString(now), actor: owner, action: existing ? "编辑项目" : "创建项目", detail: `状态为「${status}」，当前节点为「${currentNode}」。` }, ...(existing?.logs || [])],
   });
