@@ -52,6 +52,20 @@ function pushInbox(state, payload) {
   ].slice(0, 200);
 }
 
+function shouldStoreIncomingMessage(message) {
+  return !(message.MsgType === "event" && message.Event === "LOCATION");
+}
+
+function hasRecentEnterAgentEvent(state, sender) {
+  const recentWindowMs = 10 * 60 * 1000;
+  const now = nowDate().getTime();
+  return (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).some((item) => {
+    if (item.fromUserId !== sender || item.msgType !== "event" || item.event !== "enter_agent") return false;
+    const createdAt = new Date(String(item.createdAt || "").replace(" ", "T")).getTime();
+    return Number.isFinite(createdAt) && now - createdAt <= recentWindowMs;
+  });
+}
+
 function projectDigest(project) {
   return [
     `《${project.title}》`,
@@ -241,19 +255,27 @@ async function handleIncomingMessage(message) {
   const state = snapshot.state;
   const actor = actorNameFromMessage(state, message.FromUserName);
   const content = String(message.Content || "").trim();
+  const alreadyEnteredRecently = hasRecentEnterAgentEvent(state, message.FromUserName);
 
-  pushInbox(state, {
-    direction: "inbound",
-    fromUserId: message.FromUserName,
-    actor,
-    msgType: message.MsgType,
-    event: message.Event || "",
-    content,
-  });
+  if (shouldStoreIncomingMessage(message)) {
+    pushInbox(state, {
+      direction: "inbound",
+      fromUserId: message.FromUserName,
+      actor,
+      msgType: message.MsgType,
+      event: message.Event || "",
+      content,
+    });
+  }
 
   if (message.MsgType === "event" && message.Event === "enter_agent") {
     const saved = await writeStoredState(state);
-    return { replyText: helpText(), snapshot: saved };
+    return { replyText: alreadyEnteredRecently ? "" : helpText(), snapshot: saved };
+  }
+
+  if (message.MsgType === "event") {
+    const saved = await writeStoredState(state);
+    return { replyText: "", snapshot: saved };
   }
 
   if (message.MsgType !== "text") {
