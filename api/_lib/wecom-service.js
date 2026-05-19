@@ -25,7 +25,8 @@ function dateTimeString(value) {
 }
 
 function actorNameFromMessage(state, fromUserName) {
-  return state.teamMembers.find((item) => item.wecomUserId === fromUserName || item.name === fromUserName)?.name || fromUserName;
+  const normalized = String(fromUserName || "").trim().toLowerCase();
+  return state.teamMembers.find((item) => String(item.wecomUserId || "").toLowerCase() === normalized || item.name === fromUserName)?.name || fromUserName;
 }
 
 function findMember(state, keyword) {
@@ -66,6 +67,20 @@ function messageKey(message) {
 function updateInboxByKey(state, key, patch) {
   const item = (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).find((entry) => entry.messageKey === key);
   if (item) Object.assign(item, patch);
+}
+
+function friendlyWecomError(payload, fallback) {
+  const message = String(payload?.errmsg || payload?.message || fallback || "企业微信接口请求失败。");
+  if (payload?.errcode === 60020 || message.includes("not allow to access from your ip")) {
+    const ip = message.match(/from ip:\s*([^,，\s]+)/i)?.[1] || "";
+    return [
+      "企业微信接口被“可信 IP”拦截。",
+      ip ? `当前服务器出口 IP：${ip}` : "",
+      "处理办法：到企业微信后台把这个 IP 加到自建应用的可信 IP / IP 白名单里，然后再发一次语音。",
+      "说明：如果企业微信回调没有带语音识别文本，WorkPad 必须调用企业微信接口下载语音素材，所以会触发可信 IP 校验。",
+    ].filter(Boolean).join("\n");
+  }
+  return message;
 }
 
 function projectDigest(project) {
@@ -567,7 +582,7 @@ async function fetchAccessToken() {
   const response = await fetch(url);
   const json = await response.json();
   if (!response.ok || json.errcode) {
-    throw new Error(json.errmsg || "获取企业微信 access_token 失败。");
+    throw new Error(friendlyWecomError(json, "获取企业微信 access_token 失败。"));
   }
   return json.access_token;
 }
@@ -589,7 +604,7 @@ async function sendAppTextMessage({ toUser, content }) {
   });
   const json = await response.json();
   if (!response.ok || json.errcode) {
-    throw new Error(json.errmsg || "发送企业微信应用消息失败。");
+    throw new Error(friendlyWecomError(json, "发送企业微信应用消息失败。"));
   }
   return json;
 }
