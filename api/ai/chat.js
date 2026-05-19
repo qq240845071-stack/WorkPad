@@ -27,10 +27,10 @@ function buildSystemPrompt(context) {
 
 module.exports = async (req, res) => {
   if (req.method === "GET") {
-    const config = getAiConfig();
+    const config = await getAiConfig("chat");
     return sendJson(res, 200, {
       ok: true,
-      configured: hasAiConfig(),
+      configured: await hasAiConfig("chat"),
       providerName: config.providerName,
       model: config.model,
       baseUrl: config.baseUrl,
@@ -49,6 +49,7 @@ module.exports = async (req, res) => {
     const history = Array.isArray(body.history) ? body.history : [];
     const context = String(body.context || "").slice(0, 3000);
     const completion = await createChatCompletion({
+      task: "chat",
       messages: [
         { role: "system", content: buildSystemPrompt(context) },
         ...history,

@@ -853,6 +853,34 @@ body::before {
   gap: 10px;
 }
 
+.ai-config-form,
+.ai-vision-form {
+  display: grid;
+  gap: 14px;
+}
+
+.ai-config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ai-task-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(31, 36, 48, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.ai-task-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
 .ai-chat-log {
   display: grid;
   gap: 12px;
@@ -903,6 +931,15 @@ body::before {
   border-radius: var(--radius-md);
   background: rgba(164, 72, 47, 0.1);
   color: #7f311d;
+}
+
+.ai-result {
+  min-height: 88px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.52);
+  line-height: 1.8;
+  color: var(--ink);
 }
 
 .overview-grid {
@@ -1134,9 +1171,14 @@ th {
   .detail-actions,
   .node-editor-grid,
   .settings-form-grid,
-  .modal-form-grid,
-  .metric-grid {
-    grid-template-columns: 1fr;
+	  .modal-form-grid,
+	  .metric-grid,
+	  .ai-config-grid {
+	    grid-template-columns: 1fr;
+	  }
+
+  .ai-message {
+    max-width: 100%;
   }
 
   .summary-grid,

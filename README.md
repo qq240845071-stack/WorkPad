@@ -55,7 +55,8 @@ vercel dev --listen 4173
 13. `/api/state` 后端状态接口，前端可改为通过接口读写项目、人员、权限、合作方和流程配置
 14. `/api/health` 健康检查接口
 15. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架，提醒指令支持精确到分钟
-16. `/api/ai/chat` 后台 AI 管家接口，默认按云雾 OpenAI 兼容接口调用 `deepseek-v4-flash`
+16. `/api/ai/chat`、`/api/ai/risk`、`/api/ai/vision` 后台 AI 管家接口，分别支持对话、风险评估和图片识别
+17. `/api/ai/config` AI 配置接口，后台可按任务配置 Base URL、模型名和供应商说明
 
 ## 当前数据模式
 
@@ -74,12 +75,24 @@ vercel dev --listen 4173
 
 ## 大模型接口
 
-后台“AI 管家”不会把密钥写进前端或代码仓库，只读取服务端环境变量：
+后台“AI 管家”不会把密钥写进前端或代码仓库，只读取服务端环境变量。后台页面只配置非敏感项，例如模型名和 Base URL。
 
 1. `AI_API_KEY`：云雾 API Key
 2. `AI_BASE_URL`：默认 `https://yunwu.ai/v1`
 3. `AI_MODEL`：默认 `deepseek-v4-flash`
 4. `AI_PROVIDER_NAME`：默认 `云雾 DeepSeek V4 Flash`
+
+任务级模型可以在后台页面配置：
+
+1. 对话：默认 `deepseek-v4-flash`
+2. 风险评估：默认 `deepseek-v4-flash`
+3. 图片识别：默认 `qwen3-vl-flash`
+
+如果后续需要给某个任务单独配置密钥，可使用服务端环境变量：
+
+1. `AI_CHAT_API_KEY`
+2. `AI_RISK_API_KEY`
+3. `AI_VISION_API_KEY`
 
 ## 文件说明
 

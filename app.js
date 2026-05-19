@@ -131,6 +131,15 @@ const state = {
   ],
   aiPending: false,
   aiError: "",
+  aiSettings: null,
+  aiConfigPending: false,
+  aiConfigError: "",
+  aiRiskPending: false,
+  aiRiskResult: "",
+  aiRiskError: "",
+  aiVisionPending: false,
+  aiVisionResult: "",
+  aiVisionError: "",
 };
 
 const runtime = {
@@ -888,20 +897,179 @@ function buildAiContext() {
   ].join("\n");
 }
 
+function defaultAiSettings() {
+  return {
+    chat: { label: "对话", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
+    risk: { label: "风险评估", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
+    vision: { label: "图片识别", providerName: "云雾 Qwen3 VL Flash", baseUrl: "https://yunwu.ai/v1", model: "qwen3-vl-flash", configured: false },
+  };
+}
+
+function aiSettings() {
+  return state.aiSettings || defaultAiSettings();
+}
+
+async function loadAiSettings() {
+  try {
+    const response = await fetch("/api/ai/config");
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.message || "AI 配置读取失败");
+    state.aiSettings = result.tasks;
+    state.aiConfigError = "";
+    render();
+  } catch (error) {
+    state.aiConfigError = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function saveAiSettingsFromForm(form) {
+  const formData = new FormData(form);
+  const tasks = {};
+  ["chat", "risk", "vision"].forEach((task) => {
+    tasks[task] = {
+      providerName: String(formData.get(`${task}.providerName`) || "").trim(),
+      baseUrl: String(formData.get(`${task}.baseUrl`) || "").trim(),
+      model: String(formData.get(`${task}.model`) || "").trim(),
+    };
+  });
+  state.aiConfigPending = true;
+  state.aiConfigError = "";
+  render();
+  try {
+    const response = await fetch("/api/ai/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tasks }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || result.message || "AI 配置保存失败");
+    state.aiSettings = result.tasks;
+  } catch (error) {
+    state.aiConfigError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.aiConfigPending = false;
+    render();
+  }
+}
+
+async function generateAiRiskAssessment() {
+  if (state.aiRiskPending) return;
+  state.aiRiskPending = true;
+  state.aiRiskError = "";
+  state.aiRiskResult = "";
+  render();
+  try {
+    const response = await fetch("/api/ai/risk", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || result.message || "AI 风险评估失败");
+    state.aiRiskResult = result.reply || "AI 没有返回风险评估内容。";
+  } catch (error) {
+    state.aiRiskError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.aiRiskPending = false;
+    render();
+  }
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("图片读取失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function recognizeQualityImage(form) {
+  if (state.aiVisionPending) return;
+  const formData = new FormData(form);
+  const file = formData.get("image");
+  if (!(file instanceof File) || !file.size) {
+    state.aiVisionError = "请先选择一张质检照片。";
+    render();
+    return;
+  }
+  state.aiVisionPending = true;
+  state.aiVisionError = "";
+  state.aiVisionResult = "";
+  render();
+  try {
+    const imageDataUrl = await fileToDataUrl(file);
+    const response = await fetch("/api/ai/vision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageDataUrl,
+        orderRequirement: String(formData.get("orderRequirement") || "").trim(),
+        prompt: String(formData.get("prompt") || "").trim(),
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || result.message || "AI 图片识别失败");
+    state.aiVisionResult = result.reply || "AI 没有返回图片识别内容。";
+  } catch (error) {
+    state.aiVisionError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.aiVisionPending = false;
+    render();
+  }
+}
+
 function renderAiPanel() {
   const suggestions = [
     "帮我看一下今天有哪些订单风险，需要先处理什么？",
     "把“明天下午三点提醒张莹催 BK-2026-005 合同回签”整理成可执行提醒。",
     "帮我设计一个成品尺寸质检规则，要求拍到卷尺和产品边缘。",
   ];
+  const settings = aiSettings();
+  const taskCards = ["chat", "risk", "vision"].map((task) => {
+    const item = settings[task] || defaultAiSettings()[task];
+    return `
+      <article class="ai-task-card">
+        <div class="ai-task-card-head">
+          <strong>${escapeHtml(item.label)}</strong>
+          <span class="chip ${item.configured ? "chip-status" : "chip-risk-medium"}">${item.configured ? "Key 已配置" : "Key 未配置"}</span>
+        </div>
+        <label class="field">
+          <span>供应商名称</span>
+          <input name="${task}.providerName" value="${escapeHtml(item.providerName)}" />
+        </label>
+        <label class="field">
+          <span>Base URL</span>
+          <input name="${task}.baseUrl" value="${escapeHtml(item.baseUrl)}" />
+        </label>
+        <label class="field">
+          <span>模型名</span>
+          <input name="${task}.model" value="${escapeHtml(item.model)}" />
+        </label>
+      </article>`;
+  }).join("");
+
   elements.adminContent.innerHTML = `
     <section class="ai-panel">
       <div class="ai-panel-head">
         <div>
-          <h3>后台 AI 管家</h3>
-          <div class="mini-text">模型：云雾 / deepseek-v4-flash。当前先做后台问答和自然语言整理，不直接改数据库。</div>
+          <h3>AI 配置中心</h3>
+          <div class="mini-text">按任务配置模型。API Key 只在服务端环境变量保存，后台不显示密钥内容。</div>
         </div>
-        <span class="chip chip-status">${state.aiPending ? "思考中" : "已接入"}</span>
+        <span class="chip chip-status">${state.aiConfigPending ? "保存中" : "服务端配置"}</span>
+      </div>
+      <form class="ai-config-form" id="aiConfigForm">
+        <div class="ai-config-grid">${taskCards}</div>
+        ${state.aiConfigError ? `<div class="ai-error">${escapeHtml(state.aiConfigError)}</div>` : ""}
+        <div class="modal-actions">
+          <button type="submit" class="button button-primary" ${state.aiConfigPending ? "disabled" : ""}>保存 AI 配置</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="ai-panel">
+      <div class="ai-panel-head">
+        <div>
+          <h3>1. 对话</h3>
+          <div class="mini-text">用于后台日常交流、自然语言整理和提醒指令草稿。</div>
+        </div>
+        <span class="chip chip-status">${state.aiPending ? "思考中" : escapeHtml(settings.chat?.model || "deepseek-v4-flash")}</span>
       </div>
       <div class="ai-suggestions">
         ${suggestions.map((item) => `<button type="button" class="button button-muted" data-ai-prompt="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join("")}
@@ -919,6 +1087,47 @@ function renderAiPanel() {
         <textarea name="message" rows="3" placeholder="例如：帮我把明天下午三点提醒张莹催 BK-2026-005 合同回签，整理成订单提醒"></textarea>
         <button type="submit" class="button button-primary" ${state.aiPending ? "disabled" : ""}>发送给 AI 管家</button>
       </form>
+    </section>
+
+    <section class="ai-panel">
+      <div class="ai-panel-head">
+        <div>
+          <h3>2. 风险评估</h3>
+          <div class="mini-text">读取当前订单数据，自动整理高风险订单、原因和建议动作。</div>
+        </div>
+        <button type="button" class="button button-primary" data-ai-risk-action="generate" ${state.aiRiskPending ? "disabled" : ""}>${state.aiRiskPending ? "评估中" : "生成风险评估"}</button>
+      </div>
+      ${state.aiRiskError ? `<div class="ai-error">${escapeHtml(state.aiRiskError)}</div>` : ""}
+      <div class="ai-result">${state.aiRiskResult ? formatMessageText(state.aiRiskResult) : "点击按钮后，AI 会基于当前项目、提醒时间、风险说明和下一步动作生成风险排序。"}</div>
+    </section>
+
+    <section class="ai-panel">
+      <div class="ai-panel-head">
+        <div>
+          <h3>3. 图片识别</h3>
+          <div class="mini-text">用于上传质检照片，例如卷尺量尺寸、白边、比例、胶装缺胶等。</div>
+        </div>
+        <span class="chip chip-status">${escapeHtml(settings.vision?.model || "qwen3-vl-flash")}</span>
+      </div>
+      <form class="ai-vision-form" id="aiVisionForm">
+        <label class="field field-full">
+          <span>质检照片</span>
+          <input name="image" type="file" accept="image/*" />
+        </label>
+        <label class="field field-full">
+          <span>订单质检要求</span>
+          <textarea name="orderRequirement" rows="3" placeholder="例如：成品尺寸 210mm x 285mm，允许误差 ±1mm；不得露白边；胶装不得断胶、缺胶。"></textarea>
+        </label>
+        <label class="field field-full">
+          <span>补充说明</span>
+          <textarea name="prompt" rows="2" placeholder="例如：重点读卷尺宽边尺寸，判断是否合格。"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="button button-primary" ${state.aiVisionPending ? "disabled" : ""}>${state.aiVisionPending ? "识别中" : "识别图片"}</button>
+        </div>
+      </form>
+      ${state.aiVisionError ? `<div class="ai-error">${escapeHtml(state.aiVisionError)}</div>` : ""}
+      <div class="ai-result">${state.aiVisionResult ? formatMessageText(state.aiVisionResult) : "上传照片后，AI 会输出识别结果、是否合格、异常点和是否需要人工复核。"}</div>
     </section>`;
   const log = document.getElementById("aiChatLog");
   if (log) log.scrollTop = log.scrollHeight;
@@ -1481,6 +1690,11 @@ function attachEvents() {
       void sendAiChatMessage(aiPromptButton.dataset.aiPrompt);
       return;
     }
+    const aiRiskButton = event.target.closest("[data-ai-risk-action]");
+    if (aiRiskButton) {
+      void generateAiRiskAssessment();
+      return;
+    }
     const button = event.target.closest("[data-admin-action]");
     if (!button) return;
     if (button.dataset.adminAction === "add-user") openAdminModal("user", null);
@@ -1507,12 +1721,23 @@ function attachEvents() {
   });
 
   elements.adminContent.addEventListener("submit", (event) => {
-    if (event.target.id !== "aiChatForm") return;
-    event.preventDefault();
-    const formData = new FormData(event.target);
-    const message = String(formData.get("message") || "").trim();
-    event.target.reset();
-    void sendAiChatMessage(message);
+    if (event.target.id === "aiConfigForm") {
+      event.preventDefault();
+      void saveAiSettingsFromForm(event.target);
+      return;
+    }
+    if (event.target.id === "aiChatForm") {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      const message = String(formData.get("message") || "").trim();
+      event.target.reset();
+      void sendAiChatMessage(message);
+      return;
+    }
+    if (event.target.id === "aiVisionForm") {
+      event.preventDefault();
+      void recognizeQualityImage(event.target);
+    }
   });
 
   elements.drawerContent.addEventListener("click", (event) => {
@@ -1588,3 +1813,4 @@ saveSettings();
 attachEvents();
 render();
 void hydrateRemoteState();
+void loadAiSettings();
