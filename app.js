@@ -243,6 +243,11 @@ function normalizeTeamMembers(members) {
   });
 }
 
+function wecomBindingBadge(member) {
+  const isBound = Boolean(String(member.wecomUserId || "").trim());
+  return `<span class="binding-badge ${isBound ? "is-bound" : "is-unbound"}">${isBound ? "✓ 已绑定" : "待绑定"}</span>`;
+}
+
 function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -1221,7 +1226,7 @@ function renderAdminContent() {
           <div class="table-toolbar">
             <div>
               <h3>成员列表</h3>
-              <div class="mini-text">支持新增、编辑和切换身份。</div>
+              <div class="mini-text">支持新增、编辑和切换身份。企微绑定使用企业微信 UserId，不是微信昵称。</div>
             </div>
             <button type="button" class="button button-primary" data-admin-action="add-user" ${canManageUsers ? "" : "disabled"}>新增人员</button>
           </div>
@@ -1229,7 +1234,7 @@ function renderAdminContent() {
       </div>
       <div class="table-wrapper">
         <table>
-          <thead><tr><th>姓名</th><th>角色</th><th>部门</th><th>企微账号</th><th>在途项目</th><th>今日提醒</th><th>操作</th></tr></thead>
+          <thead><tr><th>姓名</th><th>角色</th><th>部门</th><th>企微账号 UserId</th><th>绑定状态</th><th>在途项目</th><th>今日提醒</th><th>操作</th></tr></thead>
           <tbody>
             ${state.teamMembers.map((member) => `
               <tr>
@@ -1237,6 +1242,7 @@ function renderAdminContent() {
                 <td><span class="permission-badge">${escapeHtml(member.role)}</span></td>
                 <td>${escapeHtml(member.department)}</td>
                 <td>${escapeHtml(member.wecomUserId || "未设置")}</td>
+                <td>${wecomBindingBadge(member)}</td>
                 <td>${state.projects.filter((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status)).length}</td>
                 <td>${state.projects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length}</td>
                 <td><button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>编辑</button></td>
@@ -1427,7 +1433,11 @@ function openAdminModal(mode, payload) {
             </select>
           </label>
           <label class="field"><span>部门</span><input name="department" type="text" value="${escapeHtml(member?.department || "")}" required /></label>
-          <label class="field field-full"><span>企微账号 UserId</span><input name="wecomUserId" type="text" value="${escapeHtml(member?.wecomUserId || "")}" placeholder="例如 zhouwen" /></label>
+          <label class="field field-full">
+            <span>企微账号 UserId</span>
+            <input name="wecomUserId" type="text" value="${escapeHtml(member?.wecomUserId || "")}" placeholder="例如 JiaTao / z.y" />
+            <small>绑定成功后用于企业微信消息识别和提醒推送；这里不是微信昵称。</small>
+          </label>
         </div>
         <div class="modal-actions">
           <button type="button" class="button button-ghost" data-admin-close="true">取消</button>

@@ -596,7 +596,8 @@ body::before {
 .stage-count,
 .pill,
 .status-chip,
-.permission-badge {
+.permission-badge,
+.binding-badge {
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -1041,6 +1042,23 @@ th {
   gap: 6px;
   background: rgba(164, 72, 47, 0.12);
   color: #7f311d;
+}
+
+.binding-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.binding-badge.is-bound {
+  background: rgba(47, 114, 82, 0.14);
+  color: #245741;
+}
+
+.binding-badge.is-unbound {
+  background: rgba(124, 112, 112, 0.14);
+  color: var(--gray);
 }
 
 .modal-panel {
