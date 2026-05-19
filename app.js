@@ -123,6 +123,17 @@ const state = {
   adminEditingId: "",
 };
 
+const runtime = {
+  apiReady: false,
+  hydrating: false,
+  syncInFlight: false,
+  syncTimer: 0,
+  storageMode: "browser-local",
+  persistence: "local",
+  lastSyncedAt: "",
+  lastError: "",
+};
+
 const elements = {
   noticeBar: document.getElementById("noticeBar"),
   boardView: document.getElementById("boardView"),
@@ -233,6 +244,116 @@ function saveSettings() {
       currentUserId: state.currentUserId,
     }),
   );
+  queueRemoteSync();
+}
+
+function exportStateSnapshot() {
+  return {
+    version: 1,
+    projects: state.projects,
+    teamMembers: state.teamMembers,
+    permissionRows: state.permissionRows,
+    partners: state.partners,
+    workflowConfig: state.workflowConfig,
+    currentUserId: state.currentUserId,
+  };
+}
+
+function applyStateSnapshot(snapshot) {
+  const seedSettings = clone(TEAM_MEMBERS);
+  state.teamMembers = Array.isArray(snapshot.teamMembers) && snapshot.teamMembers.length ? snapshot.teamMembers : seedSettings;
+  state.permissionRows = Array.isArray(snapshot.permissionRows) && snapshot.permissionRows.length ? snapshot.permissionRows : defaultPermissionRows();
+  state.partners = Array.isArray(snapshot.partners) && snapshot.partners.length ? snapshot.partners : clone(DEFAULT_PARTNERS);
+  state.workflowConfig = Array.isArray(snapshot.workflowConfig) && snapshot.workflowConfig.length ? snapshot.workflowConfig : clone(WORKFLOW_CONFIG);
+  state.projects = Array.isArray(snapshot.projects) && snapshot.projects.length ? snapshot.projects.map(normalizeProject) : seedProjects();
+  state.currentUserId = state.teamMembers.some((item) => item.id === snapshot.currentUserId) ? snapshot.currentUserId : state.teamMembers[0].id;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.projects));
+  localStorage.setItem(
+    SETTINGS_KEY,
+    JSON.stringify({
+      teamMembers: state.teamMembers,
+      permissionRows: state.permissionRows,
+      partners: state.partners,
+      workflowConfig: state.workflowConfig,
+      currentUserId: state.currentUserId,
+    }),
+  );
+}
+
+function storageStatusText() {
+  if (runtime.syncInFlight) return "后台数据同步中";
+  if (runtime.lastError) return `后台同步失败，当前先保存在浏览器本地：${runtime.lastError}`;
+  if (runtime.storageMode === "vercel-blob") return "后端数据已接入 Vercel Blob，可多人共用并长期保存";
+  if (runtime.storageMode === "local-file") return "后端数据已接入本地文件存储，适合本机联调和录入";
+  if (runtime.storageMode === "vercel-tmp") return "后台接口已经接通，但当前线上是临时缓存，下一步需要配置持久存储";
+  return "当前使用浏览器本地演示数据";
+}
+
+function updateRuntimeMeta(meta) {
+  runtime.apiReady = true;
+  runtime.storageMode = meta?.storageMode || "browser-local";
+  runtime.persistence = meta?.persistence || "local";
+  runtime.lastSyncedAt = meta?.updatedAt || "";
+  runtime.lastError = "";
+}
+
+async function requestRemoteState(method = "GET", payload) {
+  const response = await fetch("/api/state", {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) {
+    throw new Error(result.message || "后台接口请求失败");
+  }
+  return result;
+}
+
+async function hydrateRemoteState() {
+  if (typeof window === "undefined" || window.location.protocol === "file:") return;
+  try {
+    runtime.hydrating = true;
+    const result = await requestRemoteState("GET");
+    applyStateSnapshot(result.state || {});
+    updateRuntimeMeta(result.meta);
+    render();
+  } catch (error) {
+    runtime.apiReady = false;
+    runtime.lastError = "";
+    renderNoticeBar();
+  } finally {
+    runtime.hydrating = false;
+  }
+}
+
+async function pushRemoteState() {
+  if (!runtime.apiReady || runtime.hydrating) return;
+  try {
+    runtime.syncInFlight = true;
+    renderNoticeBar();
+    const result = await requestRemoteState("PUT", { state: exportStateSnapshot() });
+    updateRuntimeMeta(result.meta);
+  } catch (error) {
+    runtime.lastError = error instanceof Error ? error.message : String(error);
+  } finally {
+    runtime.syncInFlight = false;
+    renderNoticeBar();
+  }
+}
+
+function queueRemoteSync() {
+  if (!runtime.apiReady || runtime.hydrating) return;
+  window.clearTimeout(runtime.syncTimer);
+  runtime.syncTimer = window.setTimeout(() => {
+    void pushRemoteState();
+  }, 320);
+}
+
+async function resetRemoteState() {
+  const result = await requestRemoteState("POST", { action: "reset-demo" });
+  applyStateSnapshot(result.state || {});
+  updateRuntimeMeta(result.meta);
 }
 
 function uid() {
@@ -433,6 +554,7 @@ function loadProjects() {
 
 function saveProjects() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.projects));
+  queueRemoteSync();
 }
 
 function reminderStatus(project) {
@@ -549,7 +671,7 @@ function renderNoticeBar() {
     </div>
     <div class="notice-item">
       <strong>系统当前识别出 ${highRisk} 个高风险项目，建议优先查看风险与提醒清单。</strong>
-      <span class="mini-text">合作方已接入 ${getPartners().length} 个</span>
+      <span class="mini-text">合作方已接入 ${getPartners().length} 个 · ${escapeHtml(storageStatusText())}</span>
     </div>
   `;
 }
@@ -1182,9 +1304,19 @@ function attachEvents() {
 
   elements.resetFiltersButton.addEventListener("click", resetFilters);
   elements.newProjectButton.addEventListener("click", () => openModal(null));
-  elements.resetDemoButton.addEventListener("click", () => {
-    state.projects = seedProjects();
-    saveProjects();
+  elements.resetDemoButton.addEventListener("click", async () => {
+    try {
+      if (runtime.apiReady) {
+        await resetRemoteState();
+      } else {
+        state.projects = seedProjects();
+        saveProjects();
+      }
+    } catch (error) {
+      runtime.lastError = error instanceof Error ? error.message : String(error);
+      state.projects = seedProjects();
+      saveProjects();
+    }
     render();
   });
 
@@ -1305,3 +1437,4 @@ saveProjects();
 saveSettings();
 attachEvents();
 render();
+void hydrateRemoteState();

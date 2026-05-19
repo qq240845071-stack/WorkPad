@@ -1,0 +1,14 @@
+{
+  "name": "workpad",
+  "version": "0.1.0",
+  "private": true,
+  "description": "出版项目流程看板与轻量后台原型",
+  "scripts": {
+    "dev:fullstack": "vercel dev --listen 4173",
+    "check": "node --check app.js",
+    "deploy:prod": "vercel deploy --prod --yes"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.4.0"
+  }
+}
