@@ -100,6 +100,7 @@ const ROLE_KEY_MAP = {
 
 const ADMIN_TAB_RULES = {
   overview: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
+  ai: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
   users: ["管理人员"],
   permissions: ["管理权限"],
   partners: ["管理合作方"],
@@ -122,6 +123,14 @@ const state = {
   adminTab: "overview",
   adminEditingMode: "",
   adminEditingId: "",
+  aiChat: [
+    {
+      role: "assistant",
+      content: "我是 WorkPad 后台 AI 管家，已经接入 DeepSeek V4 Flash。你可以问我订单风险、提醒写法、质检规则，或让我把一句话整理成可执行的订单动作。",
+    },
+  ],
+  aiPending: false,
+  aiError: "",
 };
 
 const runtime = {
@@ -435,6 +444,10 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function formatMessageText(value) {
+  return escapeHtml(value).replace(/\n/g, "<br />");
 }
 
 function tint(hex, opacity) {
@@ -849,6 +862,7 @@ function renderAdminSummary() {
 function renderAdminNav() {
   const tabs = [
     ["overview", "后台概览", "先看整体配置状态"],
+    ["ai", "AI 管家", "自然语言理解和后台问答"],
     ["users", "人员录入", "人员名单、角色和部门"],
     ["permissions", "权限分配", "按角色查看权限矩阵"],
     ["partners", "合作方管理", "合作方主数据和项目引用"],
@@ -860,6 +874,83 @@ function renderAdminNav() {
       <strong>${escapeHtml(title)}</strong>
       <span class="mini-text">${escapeHtml(desc)}</span>
     </button>`).join("") || `<div class="empty-state">当前身份没有后台配置权限。</div>`;
+}
+
+function buildAiContext() {
+  const highRisk = state.projects.filter((project) => getProjectRisk(project).level === "高");
+  const reminders = state.projects.filter((project) => reminderStatus(project) === "今日提醒");
+  const active = state.projects.filter((project) => !["已完成", "已暂停"].includes(project.status));
+  return [
+    `当前用户：${currentUser().name} / ${currentUser().role}`,
+    `项目总数：${state.projects.length}，在途项目：${active.length}，高风险：${highRisk.length}，今日提醒：${reminders.length}`,
+    `高风险项目：${highRisk.slice(0, 5).map((project) => `${project.code}《${project.title}》${project.status}/${project.currentNode}`).join("；") || "暂无"}`,
+    `人员：${state.teamMembers.map((member) => `${member.name}(${member.role})`).join("、")}`,
+  ].join("\n");
+}
+
+function renderAiPanel() {
+  const suggestions = [
+    "帮我看一下今天有哪些订单风险，需要先处理什么？",
+    "把“明天下午三点提醒张莹催 BK-2026-005 合同回签”整理成可执行提醒。",
+    "帮我设计一个成品尺寸质检规则，要求拍到卷尺和产品边缘。",
+  ];
+  elements.adminContent.innerHTML = `
+    <section class="ai-panel">
+      <div class="ai-panel-head">
+        <div>
+          <h3>后台 AI 管家</h3>
+          <div class="mini-text">模型：云雾 / deepseek-v4-flash。当前先做后台问答和自然语言整理，不直接改数据库。</div>
+        </div>
+        <span class="chip chip-status">${state.aiPending ? "思考中" : "已接入"}</span>
+      </div>
+      <div class="ai-suggestions">
+        ${suggestions.map((item) => `<button type="button" class="button button-muted" data-ai-prompt="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join("")}
+      </div>
+      <div class="ai-chat-log" id="aiChatLog">
+        ${state.aiChat.map((message) => `
+          <div class="ai-message ai-message-${message.role === "assistant" ? "assistant" : "user"}">
+            <div class="ai-message-role">${message.role === "assistant" ? "AI 管家" : "我"}</div>
+            <div class="ai-message-content">${formatMessageText(message.content)}</div>
+          </div>`).join("")}
+        ${state.aiPending ? `<div class="ai-message ai-message-assistant"><div class="ai-message-role">AI 管家</div><div class="ai-message-content">正在整理……</div></div>` : ""}
+      </div>
+      ${state.aiError ? `<div class="ai-error">${escapeHtml(state.aiError)}</div>` : ""}
+      <form class="ai-chat-form" id="aiChatForm">
+        <textarea name="message" rows="3" placeholder="例如：帮我把明天下午三点提醒张莹催 BK-2026-005 合同回签，整理成订单提醒"></textarea>
+        <button type="submit" class="button button-primary" ${state.aiPending ? "disabled" : ""}>发送给 AI 管家</button>
+      </form>
+    </section>`;
+  const log = document.getElementById("aiChatLog");
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+async function sendAiChatMessage(message) {
+  const content = String(message || "").trim();
+  if (!content || state.aiPending) return;
+  state.aiChat.push({ role: "user", content });
+  state.aiPending = true;
+  state.aiError = "";
+  render();
+  try {
+    const response = await fetch("/api/ai/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: content,
+        history: state.aiChat.slice(-8),
+        context: buildAiContext(),
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || result.message || "AI 管家请求失败");
+    state.aiChat.push({ role: "assistant", content: result.reply || "我没有得到有效回复，请换一种说法再试。" });
+  } catch (error) {
+    state.aiError = error instanceof Error ? error.message : String(error);
+    state.aiChat.push({ role: "assistant", content: "这次没有连上 AI 管家。请稍后再试，或检查后台大模型环境变量配置。" });
+  } finally {
+    state.aiPending = false;
+    render();
+  }
 }
 
 function renderAdminContent() {
@@ -877,6 +968,7 @@ function renderAdminContent() {
   }
   const titles = {
     overview: ["后台概览", "适合先确认人员、合作方、权限和流程节点是否齐。"],
+    ai: ["AI 管家", "已接入云雾 DeepSeek V4 Flash，用来理解自然语言并辅助整理订单动作。"],
     users: ["人员录入", `当前共 ${state.teamMembers.length} 名成员。`],
     permissions: ["权限分配", "当前可以在这里调整角色权限矩阵。"],
     partners: ["合作方管理", `当前已整理 ${getPartners().length} 个合作方，项目录入时已改成通过选择进入。`],
@@ -904,6 +996,11 @@ function renderAdminContent() {
           <div class="mini-text">人员、合作方、权限矩阵和流程节点都已经切换到可保存的数据源，下面几个模块会继续把新增和编辑动作接上。</div>
         </section>
       </div>`;
+    return;
+  }
+
+  if (state.adminTab === "ai") {
+    renderAiPanel();
     return;
   }
 
@@ -1379,6 +1476,11 @@ function attachEvents() {
   });
 
   elements.adminContent.addEventListener("click", (event) => {
+    const aiPromptButton = event.target.closest("[data-ai-prompt]");
+    if (aiPromptButton) {
+      void sendAiChatMessage(aiPromptButton.dataset.aiPrompt);
+      return;
+    }
     const button = event.target.closest("[data-admin-action]");
     if (!button) return;
     if (button.dataset.adminAction === "add-user") openAdminModal("user", null);
@@ -1402,6 +1504,15 @@ function attachEvents() {
       item[target.dataset.workflowField] = target.dataset.workflowField === "cycle" ? Number(target.value) || 0 : target.value;
       saveSettings();
     }
+  });
+
+  elements.adminContent.addEventListener("submit", (event) => {
+    if (event.target.id !== "aiChatForm") return;
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const message = String(formData.get("message") || "").trim();
+    event.target.reset();
+    void sendAiChatMessage(message);
   });
 
   elements.drawerContent.addEventListener("click", (event) => {

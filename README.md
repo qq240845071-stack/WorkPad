@@ -55,6 +55,7 @@ vercel dev --listen 4173
 13. `/api/state` 后端状态接口，前端可改为通过接口读写项目、人员、权限、合作方和流程配置
 14. `/api/health` 健康检查接口
 15. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架，提醒指令支持精确到分钟
+16. `/api/ai/chat` 后台 AI 管家接口，默认按云雾 OpenAI 兼容接口调用 `deepseek-v4-flash`
 
 ## 当前数据模式
 
@@ -70,6 +71,15 @@ vercel dev --listen 4173
 3. 配置检查：`/api/wecom/health`
 4. 联调说明：`docs/企业微信联调说明.md`
 5. 自助绑定入口：在企业微信 `WorkPad` 应用聊天框里发送 `绑定 姓名`
+
+## 大模型接口
+
+后台“AI 管家”不会把密钥写进前端或代码仓库，只读取服务端环境变量：
+
+1. `AI_API_KEY`：云雾 API Key
+2. `AI_BASE_URL`：默认 `https://yunwu.ai/v1`
+3. `AI_MODEL`：默认 `deepseek-v4-flash`
+4. `AI_PROVIDER_NAME`：默认 `云雾 DeepSeek V4 Flash`
 
 ## 文件说明
 
