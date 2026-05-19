@@ -54,6 +54,7 @@ vercel dev --listen 4173
 12. 内置演示数据自动补回，不会因为本地数据缺项而整批消失
 13. `/api/state` 后端状态接口，前端可改为通过接口读写项目、人员、权限、合作方和流程配置
 14. `/api/health` 健康检查接口
+15. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架
 
 ## 当前数据模式
 
@@ -62,6 +63,13 @@ vercel dev --listen 4173
 3. 部署到 Vercel 后，如果配置了 `BLOB_READ_WRITE_TOKEN`，会切到持久化的 Blob 存储。
 4. 如果线上没配 Blob，接口仍然能跑，但会退化成临时云端缓存，不适合正式生产。
 
+## 企业微信接口
+
+1. 回调入口：`/api/wecom/callback`
+2. 主动发消息：`/api/wecom/send-message`
+3. 配置检查：`/api/wecom/health`
+4. 联调说明：`docs/企业微信联调说明.md`
+
 ## 文件说明
 
 1. `index.html`：页面结构
@@ -69,3 +77,4 @@ vercel dev --listen 4173
 3. `app.js`：前端状态、看板交互和后台同步逻辑
 4. `docs/功能清单与页面结构.md`：产品定义文档
 5. `api/`：后端接口和存储适配
+6. `docs/企业微信联调说明.md`：企业微信接入说明

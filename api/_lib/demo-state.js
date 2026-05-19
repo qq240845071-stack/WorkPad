@@ -14,12 +14,12 @@ const STATUS_ORDER = [
 const NODE_ORDER = ["作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", "尾印单"];
 
 const TEAM_MEMBERS = [
-  { id: "user-zhou", name: "周雯", role: "超级管理员", department: "出版一组" },
-  { id: "user-xu", name: "许畅", role: "项目主管", department: "出版二组" },
-  { id: "user-wang", name: "王黎", role: "编辑", department: "出版二组" },
-  { id: "user-liu", name: "刘珂", role: "编辑", department: "少儿编辑部" },
-  { id: "user-chen", name: "陈敏", role: "协同支持", department: "法务支持" },
-  { id: "user-sun", name: "孙妍", role: "协同支持", department: "发行支持" },
+  { id: "user-zhou", name: "周雯", role: "超级管理员", department: "出版一组", wecomUserId: "zhouwen" },
+  { id: "user-xu", name: "许畅", role: "项目主管", department: "出版二组", wecomUserId: "xuchang" },
+  { id: "user-wang", name: "王黎", role: "编辑", department: "出版二组", wecomUserId: "wangli" },
+  { id: "user-liu", name: "刘珂", role: "编辑", department: "少儿编辑部", wecomUserId: "liuke" },
+  { id: "user-chen", name: "陈敏", role: "协同支持", department: "法务支持", wecomUserId: "chenmin" },
+  { id: "user-sun", name: "孙妍", role: "协同支持", department: "发行支持", wecomUserId: "sunyan" },
 ];
 
 const ROLE_PERMISSION_ROWS = [
@@ -197,6 +197,7 @@ function createDefaultState() {
     partners: clone(DEFAULT_PARTNERS),
     workflowConfig: clone(WORKFLOW_CONFIG),
     currentUserId: TEAM_MEMBERS[0].id,
+    wecomInbox: [],
   };
 }
 

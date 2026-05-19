@@ -44,12 +44,12 @@ const STATUS_TO_NODE = {
 };
 
 const TEAM_MEMBERS = [
-  { id: "user-zhou", name: "周雯", role: "超级管理员", department: "出版一组" },
-  { id: "user-xu", name: "许畅", role: "项目主管", department: "出版二组" },
-  { id: "user-wang", name: "王黎", role: "编辑", department: "出版二组" },
-  { id: "user-liu", name: "刘珂", role: "编辑", department: "少儿编辑部" },
-  { id: "user-chen", name: "陈敏", role: "协同支持", department: "法务支持" },
-  { id: "user-sun", name: "孙妍", role: "协同支持", department: "发行支持" },
+  { id: "user-zhou", name: "周雯", role: "超级管理员", department: "出版一组", wecomUserId: "zhouwen" },
+  { id: "user-xu", name: "许畅", role: "项目主管", department: "出版二组", wecomUserId: "xuchang" },
+  { id: "user-wang", name: "王黎", role: "编辑", department: "出版二组", wecomUserId: "wangli" },
+  { id: "user-liu", name: "刘珂", role: "编辑", department: "少儿编辑部", wecomUserId: "liuke" },
+  { id: "user-chen", name: "陈敏", role: "协同支持", department: "法务支持", wecomUserId: "chenmin" },
+  { id: "user-sun", name: "孙妍", role: "协同支持", department: "发行支持", wecomUserId: "sunyan" },
 ];
 
 const ROLE_PERMISSION_ROWS = [
@@ -112,6 +112,7 @@ const state = {
   permissionRows: [],
   partners: [],
   workflowConfig: [],
+  wecomInbox: [],
   filters: { search: "", owner: "全部", status: "全部", risk: "全部", update: "全部", reminder: "全部" },
   selectedProjectId: null,
   editingProjectId: null,
@@ -213,12 +214,23 @@ function defaultPermissionRows() {
   }));
 }
 
+function normalizeTeamMembers(members) {
+  return (Array.isArray(members) ? members : []).map((member) => {
+    const fallback = TEAM_MEMBERS.find((item) => item.id === member.id || item.name === member.name) || {};
+    return {
+      ...fallback,
+      ...member,
+      wecomUserId: member.wecomUserId ?? fallback.wecomUserId ?? "",
+    };
+  });
+}
+
 function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      state.teamMembers = Array.isArray(parsed.teamMembers) && parsed.teamMembers.length ? parsed.teamMembers : clone(TEAM_MEMBERS);
+      state.teamMembers = Array.isArray(parsed.teamMembers) && parsed.teamMembers.length ? normalizeTeamMembers(parsed.teamMembers) : clone(TEAM_MEMBERS);
       state.permissionRows = Array.isArray(parsed.permissionRows) && parsed.permissionRows.length ? parsed.permissionRows : defaultPermissionRows();
       state.partners = Array.isArray(parsed.partners) && parsed.partners.length ? parsed.partners : clone(DEFAULT_PARTNERS);
       state.workflowConfig = Array.isArray(parsed.workflowConfig) && parsed.workflowConfig.length ? parsed.workflowConfig : clone(WORKFLOW_CONFIG);
@@ -256,16 +268,18 @@ function exportStateSnapshot() {
     partners: state.partners,
     workflowConfig: state.workflowConfig,
     currentUserId: state.currentUserId,
+    wecomInbox: state.wecomInbox,
   };
 }
 
 function applyStateSnapshot(snapshot) {
   const seedSettings = clone(TEAM_MEMBERS);
-  state.teamMembers = Array.isArray(snapshot.teamMembers) && snapshot.teamMembers.length ? snapshot.teamMembers : seedSettings;
+  state.teamMembers = Array.isArray(snapshot.teamMembers) && snapshot.teamMembers.length ? normalizeTeamMembers(snapshot.teamMembers) : seedSettings;
   state.permissionRows = Array.isArray(snapshot.permissionRows) && snapshot.permissionRows.length ? snapshot.permissionRows : defaultPermissionRows();
   state.partners = Array.isArray(snapshot.partners) && snapshot.partners.length ? snapshot.partners : clone(DEFAULT_PARTNERS);
   state.workflowConfig = Array.isArray(snapshot.workflowConfig) && snapshot.workflowConfig.length ? snapshot.workflowConfig : clone(WORKFLOW_CONFIG);
   state.projects = Array.isArray(snapshot.projects) && snapshot.projects.length ? snapshot.projects.map(normalizeProject) : seedProjects();
+  state.wecomInbox = Array.isArray(snapshot.wecomInbox) ? snapshot.wecomInbox : [];
   state.currentUserId = state.teamMembers.some((item) => item.id === snapshot.currentUserId) ? snapshot.currentUserId : state.teamMembers[0].id;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.projects));
   localStorage.setItem(
@@ -891,13 +905,14 @@ function renderAdminContent() {
       </div>
       <div class="table-wrapper">
         <table>
-          <thead><tr><th>姓名</th><th>角色</th><th>部门</th><th>在途项目</th><th>今日提醒</th><th>操作</th></tr></thead>
+          <thead><tr><th>姓名</th><th>角色</th><th>部门</th><th>企微账号</th><th>在途项目</th><th>今日提醒</th><th>操作</th></tr></thead>
           <tbody>
             ${state.teamMembers.map((member) => `
               <tr>
                 <td>${escapeHtml(member.name)}</td>
                 <td><span class="permission-badge">${escapeHtml(member.role)}</span></td>
                 <td>${escapeHtml(member.department)}</td>
+                <td>${escapeHtml(member.wecomUserId || "未设置")}</td>
                 <td>${state.projects.filter((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status)).length}</td>
                 <td>${state.projects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length}</td>
                 <td><button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>编辑</button></td>
@@ -1088,6 +1103,7 @@ function openAdminModal(mode, payload) {
             </select>
           </label>
           <label class="field"><span>部门</span><input name="department" type="text" value="${escapeHtml(member?.department || "")}" required /></label>
+          <label class="field field-full"><span>企微账号 UserId</span><input name="wecomUserId" type="text" value="${escapeHtml(member?.wecomUserId || "")}" placeholder="例如 zhouwen" /></label>
         </div>
         <div class="modal-actions">
           <button type="button" class="button button-ghost" data-admin-close="true">取消</button>
@@ -1397,13 +1413,15 @@ function attachEvents() {
       const nextName = String(formData.get("name") || "").trim();
       const nextRole = String(formData.get("role") || "").trim();
       const nextDepartment = String(formData.get("department") || "").trim();
+      const nextWecomUserId = String(formData.get("wecomUserId") || "").trim();
       if (existing) {
         if (existing.name !== nextName) renameMemberAcrossProjects(existing.name, nextName);
         existing.name = nextName;
         existing.role = nextRole;
         existing.department = nextDepartment;
+        existing.wecomUserId = nextWecomUserId;
       } else {
-        state.teamMembers.push({ id: uid(), name: nextName, role: nextRole, department: nextDepartment });
+        state.teamMembers.push({ id: uid(), name: nextName, role: nextRole, department: nextDepartment, wecomUserId: nextWecomUserId });
       }
       saveSettings();
       closeAdminModal();

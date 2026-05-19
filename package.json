@@ -9,6 +9,7 @@
     "deploy:prod": "vercel deploy --prod --yes"
   },
   "dependencies": {
-    "@vercel/blob": "^2.4.0"
+    "@vercel/blob": "^2.4.0",
+    "fast-xml-parser": "^4.5.3"
   }
 }

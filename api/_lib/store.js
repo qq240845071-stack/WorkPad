@@ -25,6 +25,7 @@ function normalizeState(rawState) {
     partners: Array.isArray(state.partners) && state.partners.length ? state.partners : seed.partners,
     workflowConfig: Array.isArray(state.workflowConfig) && state.workflowConfig.length ? state.workflowConfig : seed.workflowConfig,
     currentUserId: state.currentUserId || seed.currentUserId,
+    wecomInbox: Array.isArray(state.wecomInbox) ? state.wecomInbox.slice(0, 200) : [],
   };
 }
 
