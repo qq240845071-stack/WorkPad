@@ -54,7 +54,7 @@ vercel dev --listen 4173
 12. 内置演示数据自动补回，不会因为本地数据缺项而整批消失
 13. `/api/state` 后端状态接口，前端可改为通过接口读写项目、人员、权限、合作方和流程配置
 14. `/api/health` 健康检查接口
-15. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架
+15. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架，提醒指令支持精确到分钟
 
 ## 当前数据模式
 
@@ -69,6 +69,7 @@ vercel dev --listen 4173
 2. 主动发消息：`/api/wecom/send-message`
 3. 配置检查：`/api/wecom/health`
 4. 联调说明：`docs/企业微信联调说明.md`
+5. 自助绑定入口：在企业微信 `WorkPad` 应用聊天框里发送 `绑定 姓名`
 
 ## 文件说明
 

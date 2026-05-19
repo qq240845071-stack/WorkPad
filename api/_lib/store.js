@@ -14,12 +14,31 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function normalizeReminderDate(value, fallback) {
+  const raw = String(value || fallback || "").trim();
+  if (!raw) return raw;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return `${raw} 09:00`;
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})/);
+  if (match) return `${match[1]} ${match[2].padStart(2, "0")}:${match[3]}`;
+  return raw;
+}
+
+function normalizeProjects(projects) {
+  return projects.map((project) => ({
+    ...project,
+    reminderDate: normalizeReminderDate(project.reminderDate, project.planFinish),
+    nodes: Array.isArray(project.nodes)
+      ? project.nodes.map((node) => ({ ...node, reminderDate: normalizeReminderDate(node.reminderDate, node.planned) }))
+      : project.nodes,
+  }));
+}
+
 function normalizeState(rawState) {
   const seed = createDefaultState();
   const state = rawState && typeof rawState === "object" ? rawState : {};
   return {
     version: 1,
-    projects: Array.isArray(state.projects) && state.projects.length ? state.projects : seed.projects,
+    projects: Array.isArray(state.projects) && state.projects.length ? normalizeProjects(state.projects) : seed.projects,
     teamMembers: Array.isArray(state.teamMembers) && state.teamMembers.length ? state.teamMembers : seed.teamMembers,
     permissionRows: Array.isArray(state.permissionRows) && state.permissionRows.length ? state.permissionRows : seed.permissionRows,
     partners: Array.isArray(state.partners) && state.partners.length ? state.partners : seed.partners,

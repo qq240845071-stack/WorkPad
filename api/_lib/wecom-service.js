@@ -60,7 +60,7 @@ function projectDigest(project) {
     `节点：${project.currentNode}`,
     `负责人：${project.owner}`,
     `提醒人：${project.reminderPerson}`,
-    `提醒日期：${project.reminderDate}`,
+    `提醒时间：${project.reminderDate}`,
     `下一步：${project.nextAction}`,
   ].join("\n");
 }
@@ -71,8 +71,9 @@ function helpText() {
     "1. 帮助",
     "2. 查看 BK-2026-001",
     "3. 记录 BK-2026-001 作者已回稿，准备二校",
-    "4. 提醒 陈敏 BK-2026-005 2026-05-20 催合同回签",
+    "4. 提醒 陈敏 BK-2026-005 2026-05-20 15:30 催合同回签",
     "5. 我的提醒",
+    "6. 绑定 贾涛",
   ].join("\n");
 }
 
@@ -96,7 +97,7 @@ function buildReminderText(project, note) {
     `项目：${project.title}`,
     `状态：${project.status} / ${project.currentNode}`,
     `提醒人：${project.reminderPerson}`,
-    `提醒日期：${project.reminderDate}`,
+    `提醒时间：${project.reminderDate}`,
     note ? `说明：${note}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -106,7 +107,98 @@ function myRemindersText(state, sender) {
   if (!member) return "当前企微账号还没有在 WorkPad 人员表里建立映射，请先在后台补充企微账号 UserId。";
   const list = state.projects.filter((item) => item.reminderPerson === member.name && item.status !== "已完成").slice(0, 5);
   if (!list.length) return "你当前没有待处理提醒。";
-  return ["你当前的待提醒项目：", ...list.map((project) => `- ${project.code}《${project.title}》 ${project.status}/${project.currentNode}，提醒日期 ${project.reminderDate}`)].join("\n");
+  return ["你当前的待提醒项目：", ...list.map((project) => `- ${project.code}《${project.title}》 ${project.status}/${project.currentNode}，提醒时间 ${project.reminderDate}`)].join("\n");
+}
+
+function bindMemberText(state, sender, memberKeyword) {
+  const member = findMember(state, memberKeyword);
+  if (!member) {
+    return `没有找到人员「${memberKeyword}」，请先确认后台人员名称一致。`;
+  }
+
+  if (member.wecomUserId === sender) {
+    return `已确认绑定成功：${member.name} -> ${sender}`;
+  }
+
+  if (member.wecomUserId && member.wecomUserId !== sender) {
+    return `人员「${member.name}」当前已绑定企微账号 ${member.wecomUserId}，请先在后台确认后再改绑。`;
+  }
+
+  const previousMember = state.teamMembers.find((item) => item.wecomUserId === sender);
+  if (previousMember && previousMember.id !== member.id) {
+    previousMember.wecomUserId = "";
+  }
+
+  member.wecomUserId = sender;
+  return `已绑定成功：${member.name} -> ${sender}\n现在你可以直接发送“我的提醒”查看和自己相关的项目。`;
+}
+
+function addDays(date, offset) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + offset);
+  return next;
+}
+
+function dateFromToken(token) {
+  const value = String(token || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (value === "今天") return dateString(nowDate());
+  if (value === "明天") return dateString(addDays(nowDate(), 1));
+  if (value === "后天") return dateString(addDays(nowDate(), 2));
+  return "";
+}
+
+function timeFromToken(token) {
+  const value = String(token || "").trim().replace("：", ":");
+  let match = value.match(/^(\d{1,2}):(\d{1,2})$/);
+  let period = "";
+  let hourIndex = 1;
+  let minuteIndex = 2;
+  if (!match) {
+    match = value.match(/^(上午|早上|中午|下午|晚上)?(\d{1,2})点(?:(\d{1,2})分?)?$/);
+    period = match ? match[1] || "" : "";
+    hourIndex = 2;
+    minuteIndex = 3;
+  }
+  if (!match) return "";
+
+  let hour = Number(match[hourIndex]);
+  const minute = Number(match[minuteIndex] || 0);
+  if (["下午", "晚上"].includes(period) && hour < 12) hour += 12;
+  if (period === "中午" && hour < 11) hour += 12;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return "";
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function parseReminderSchedule(rawText) {
+  const parts = String(rawText || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { error: "missing-time", note: "" };
+
+  let date = dateFromToken(parts[0]);
+  let time = "";
+  let consumed = date ? 1 : 0;
+
+  time = timeFromToken(parts[consumed]);
+  if (time) {
+    consumed += 1;
+  } else if (!date) {
+    time = timeFromToken(parts[0]);
+    if (time) {
+      date = dateString(nowDate());
+      consumed = 1;
+    }
+  }
+
+  const note = parts.slice(consumed).join(" ").trim();
+  if (!time) return { error: "missing-time", note: String(rawText || "").trim() };
+  if (!date) date = dateString(nowDate());
+  if (!note) return { error: "missing-note", note: "" };
+
+  return { reminderDate: `${date} ${time}`, note };
+}
+
+function reminderFormatTip() {
+  return "提醒需要具体到几点几分。\n格式：提醒 陈敏 BK-2026-005 2026-05-20 15:30 催合同回签\n也可以写：提醒 陈敏 BK-2026-005 明天 9:30 催合同回签";
 }
 
 function parseCommand(content) {
@@ -114,6 +206,11 @@ function parseCommand(content) {
   if (!text) return { type: "empty" };
   if (/^(帮助|help)$/i.test(text)) return { type: "help" };
   if (/^(我的提醒|提醒我)$/i.test(text)) return { type: "my-reminders" };
+
+  const bindMatch = text.match(/^绑定\s+(\S+)$/);
+  if (bindMatch) {
+    return { type: "bind", memberKeyword: bindMatch[1].trim() };
+  }
 
   const viewMatch = text.match(/^(查看|查询)\s+(.+)$/);
   if (viewMatch) {
@@ -125,14 +222,14 @@ function parseCommand(content) {
     return { type: "record", projectKeyword: recordMatch[1].trim(), note: recordMatch[2].trim() };
   }
 
-  const remindMatch = text.match(/^提醒\s+(\S+)\s+(\S+)(?:\s+(\d{4}-\d{2}-\d{2}))?\s+([\s\S]+)$/);
+  const remindMatch = text.match(/^提醒\s+(\S+)\s+(\S+)\s+([\s\S]+)$/);
   if (remindMatch) {
+    const schedule = parseReminderSchedule(remindMatch[3]);
     return {
       type: "remind",
       memberKeyword: remindMatch[1].trim(),
       projectKeyword: remindMatch[2].trim(),
-      reminderDate: remindMatch[3] ? remindMatch[3].trim() : dateString(nowDate()),
-      note: remindMatch[4].trim(),
+      ...schedule,
     };
   }
 
@@ -176,6 +273,12 @@ async function handleIncomingMessage(message) {
     return { replyText: myRemindersText(state, message.FromUserName), snapshot: saved };
   }
 
+  if (command.type === "bind") {
+    const replyText = bindMemberText(state, message.FromUserName, command.memberKeyword);
+    const saved = await writeStoredState(state);
+    return { replyText, snapshot: saved };
+  }
+
   if (command.type === "view") {
     const project = findProject(state, command.keyword);
     const saved = await writeStoredState(state);
@@ -195,6 +298,11 @@ async function handleIncomingMessage(message) {
   }
 
   if (command.type === "remind") {
+    if (command.error) {
+      const saved = await writeStoredState(state);
+      const missingNote = command.error === "missing-note" ? "\n另外需要补充提醒内容，比如“催合同回签”。" : "";
+      return { replyText: `${reminderFormatTip()}${missingNote}`, snapshot: saved };
+    }
     const member = findMember(state, command.memberKeyword);
     const project = findProject(state, command.projectKeyword);
     if (!member) {

@@ -114,7 +114,7 @@ function buildNodes(startDate, owner, status, currentNode, reminderPerson, remin
       planned: dateString(planned),
       completed,
       reminderPerson: index === currentIndex ? reminderPerson : owner,
-      reminderDate: index === currentIndex ? dateString(reminderDate) : dateString(planned),
+      reminderDate: index === currentIndex ? dateTimeString(reminderDate) : dateTimeString(planned),
       note: nodeStatus === "已阻塞" ? "当前节点存在阻塞，需要人工跟进。" : nodeStatus === "进行中" ? "当前为主要推进节点。" : nodeStatus === "已完成" ? "节点已关闭。" : "尚未启动。",
     };
   });
@@ -161,7 +161,7 @@ function createSeedProject(row) {
     nextAction,
     riskNote,
     reminderPerson,
-    reminderDate: dateString(reminderDate),
+    reminderDate: dateTimeString(reminderDate),
     nodes: buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode),
     followUps: [
       { time: dateTimeString(addDays(updatedAt, -3)), user: owner, progress: summary, nextAction },

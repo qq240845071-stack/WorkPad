@@ -22,7 +22,7 @@ function buildProjectReminder(project, note) {
     `项目：${project.title}`,
     `编号：${project.code}`,
     `状态：${project.status} / ${project.currentNode}`,
-    `提醒日期：${project.reminderDate}`,
+    `提醒时间：${project.reminderDate}`,
     note ? `说明：${note}` : `下一步：${project.nextAction}`,
   ].join("\n");
 }

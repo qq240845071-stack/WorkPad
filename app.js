@@ -364,6 +364,13 @@ function queueRemoteSync() {
   }, 320);
 }
 
+async function flushRemoteSync() {
+  if (!runtime.apiReady || runtime.hydrating) return;
+  window.clearTimeout(runtime.syncTimer);
+  runtime.syncTimer = 0;
+  await pushRemoteState();
+}
+
 async function resetRemoteState() {
   const result = await requestRemoteState("POST", { action: "reset-demo" });
   applyStateSnapshot(result.state || {});
@@ -409,6 +416,14 @@ function dateTimeString(value) {
   return `${dateString(date)} ${hours}:${minutes}`;
 }
 
+function dateTimeInputValue(value) {
+  return dateTimeString(value).replace(" ", "T");
+}
+
+function reminderTimeText(value) {
+  return dateTimeString(value);
+}
+
 function diffDays(later, earlier) {
   return Math.floor((later.getTime() - earlier.getTime()) / (1000 * 60 * 60 * 24));
 }
@@ -452,7 +467,7 @@ function buildNodes(startDate, owner, status, currentNode, reminderPerson, remin
       planned: dateString(planned),
       completed,
       reminderPerson: index === currentIndex ? reminderPerson : owner,
-      reminderDate: index === currentIndex ? dateString(reminderDate) : dateString(planned),
+      reminderDate: index === currentIndex ? dateTimeString(reminderDate) : dateTimeString(planned),
       note: nodeStatus === "已阻塞" ? "当前节点存在阻塞，需要人工跟进。" : nodeStatus === "进行中" ? "当前为主要推进节点。" : nodeStatus === "已完成" ? "节点已关闭。" : "尚未启动。",
     };
   });
@@ -499,7 +514,7 @@ function createSeedProject(row) {
     nextAction,
     riskNote,
     reminderPerson,
-    reminderDate: dateString(reminderDate),
+    reminderDate: dateTimeString(reminderDate),
     nodes: buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode),
     followUps: [
       { time: dateTimeString(addDays(updatedAt, -3)), user: owner, progress: summary, nextAction },
@@ -525,6 +540,9 @@ function normalizeProject(project) {
   const reminderPerson = project.reminderPerson || owner;
   const reminderDate = project.reminderDate || project.planFinish || dateString(new Date());
   const startDate = parseDate(project.startDate || new Date());
+  const normalizedNodes = Array.isArray(project.nodes) && project.nodes.length
+    ? project.nodes.map((node) => ({ ...node, reminderDate: dateTimeString(node.reminderDate || node.planned || reminderDate) }))
+    : buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate);
   return {
     ...project,
     status,
@@ -535,12 +553,12 @@ function normalizeProject(project) {
     nextAction: project.nextAction || "待补充下一步动作",
     riskNote: project.riskNote || "暂无特别风险说明。",
     reminderPerson,
-    reminderDate: dateString(reminderDate),
+    reminderDate: dateTimeString(reminderDate),
     startDate: dateString(startDate),
     planFinish: dateString(project.planFinish || addDays(new Date(), 14)),
     updatedAt: dateTimeString(project.updatedAt || new Date()),
     createdAt: dateTimeString(project.createdAt || new Date()),
-    nodes: Array.isArray(project.nodes) && project.nodes.length ? project.nodes : buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate),
+    nodes: normalizedNodes,
     followUps: Array.isArray(project.followUps) && project.followUps.length ? project.followUps : [{ time: dateTimeString(new Date()), user: owner, progress: project.summary || "创建项目", nextAction: project.nextAction || "待补充下一步动作" }],
     logs: Array.isArray(project.logs) && project.logs.length ? project.logs : [{ time: dateTimeString(new Date()), actor: owner, action: "创建项目", detail: "补齐基础信息。" }],
   };
@@ -725,7 +743,7 @@ function renderUrgentList(projects) {
           <span class="${riskChip(risk.level)}">${escapeHtml(risk.level)}风险</span>
         </div>
         <p class="project-author">${escapeHtml(project.owner)} · ${escapeHtml(project.status)} · ${escapeHtml(project.currentNode)}</p>
-        <p class="mini-text">提醒人：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderStatus(project))}</p>
+        <p class="mini-text">提醒：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderTimeText(project.reminderDate))} · ${escapeHtml(reminderStatus(project))}</p>
         <p class="mini-text">${escapeHtml(risk.reasons.join(" / "))}</p>
       </button>
     </article>`).join("") || `<div class="empty-state">当前没有需要优先处理的项目。</div>`;
@@ -765,7 +783,7 @@ function renderBoard(projects) {
                     <div>负责人：${escapeHtml(project.owner)}</div>
                     <div>合作方：${escapeHtml(project.partner || "未设置")}</div>
                     <div>当前节点：${escapeHtml(project.currentNode)}</div>
-                    <div>提醒人：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderStatus(project))}</div>
+                    <div>提醒：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderTimeText(project.reminderDate))} · ${escapeHtml(reminderStatus(project))}</div>
                   </div>
                 </button>
               </article>`;
@@ -1030,7 +1048,7 @@ function renderDrawer() {
           <div class="overview-item"><span>合作方</span><strong>${escapeHtml(project.partner || "未设置")}</strong></div>
           <div class="overview-item"><span>当前节点</span><strong>${escapeHtml(project.currentNode)}</strong></div>
           <div class="overview-item"><span>提醒人</span><strong>${escapeHtml(project.reminderPerson)}</strong></div>
-          <div class="overview-item"><span>提醒日期</span><strong>${escapeHtml(dateString(project.reminderDate))}</strong></div>
+          <div class="overview-item"><span>提醒时间</span><strong>${escapeHtml(reminderTimeText(project.reminderDate))}</strong></div>
         </div>
       </section>
       <section class="detail-card">
@@ -1074,7 +1092,7 @@ function openModal(project) {
   elements.formNextAction.value = current ? current.nextAction : "";
   elements.formRiskNote.value = current ? current.riskNote : "";
   elements.formReminderPerson.value = current ? current.reminderPerson : currentUser().name;
-  elements.formReminderDate.value = current ? dateString(current.reminderDate) : dateString(new Date());
+  elements.formReminderDate.value = current ? dateTimeInputValue(current.reminderDate) : dateTimeInputValue(new Date());
   elements.projectModal.classList.add("is-open");
   elements.projectModal.setAttribute("aria-hidden", "false");
 }
@@ -1138,14 +1156,14 @@ function closeAdminModal() {
   elements.adminModalContent.innerHTML = "";
 }
 
-function saveProjectFromForm() {
+async function saveProjectFromForm() {
   if (!hasPermission("编辑项目状态")) return;
   const now = new Date();
   const existing = state.projects.find((item) => item.id === elements.formInternalId.value);
   const status = elements.formStatus.value;
   const currentNode = elements.formCurrentNode.value;
   const owner = elements.formOwner.value.trim();
-  const reminderDate = elements.formReminderDate.value || dateString(new Date());
+  const reminderDate = dateTimeString(elements.formReminderDate.value || new Date());
   const project = normalizeProject({
     id: existing ? existing.id : uid(),
     source: existing ? existing.source : "custom",
@@ -1171,6 +1189,7 @@ function saveProjectFromForm() {
   });
   state.projects = existing ? state.projects.map((item) => (item.id === project.id ? project : item)) : [project, ...state.projects];
   saveProjects();
+  await flushRemoteSync();
   closeModal();
   render();
 }
@@ -1397,14 +1416,14 @@ function attachEvents() {
   elements.modalCancelButton.addEventListener("click", closeModal);
   elements.adminModalBackdrop.addEventListener("click", closeAdminModal);
   elements.adminModalCloseButton.addEventListener("click", closeAdminModal);
-  elements.projectForm.addEventListener("submit", (event) => {
+  elements.projectForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    saveProjectFromForm();
+    await saveProjectFromForm();
   });
   elements.adminModalContent.addEventListener("click", (event) => {
     if (event.target.closest("[data-admin-close]")) closeAdminModal();
   });
-  elements.adminModalContent.addEventListener("submit", (event) => {
+  elements.adminModalContent.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (event.target.id === "adminUserForm") {
       if (!hasPermission("管理人员")) return;
@@ -1424,6 +1443,7 @@ function attachEvents() {
         state.teamMembers.push({ id: uid(), name: nextName, role: nextRole, department: nextDepartment, wecomUserId: nextWecomUserId });
       }
       saveSettings();
+      await flushRemoteSync();
       closeAdminModal();
       render();
     }
@@ -1440,6 +1460,7 @@ function attachEvents() {
       }
       state.partners = [...new Set(state.partners.filter(Boolean))].sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
       saveSettings();
+      await flushRemoteSync();
       closeAdminModal();
       render();
     }
