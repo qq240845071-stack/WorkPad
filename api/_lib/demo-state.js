@@ -22,6 +22,15 @@ const TEAM_MEMBERS = [
   { id: "user-sun", name: "孙妍", role: "协同支持", department: "发行支持", wecomUserId: "sunyan" },
 ];
 
+const DEFAULT_DEPARTMENTS = ["出版一组", "出版二组", "少儿编辑部", "法务支持", "发行支持", "未分配部门"];
+
+const DEFAULT_ROLES = [
+  { key: "admin", name: "超级管理员", description: "拥有全部后台配置权限", locked: true },
+  { key: "manager", name: "项目主管", description: "管理项目、合作方和流程配置", locked: true },
+  { key: "editor", name: "编辑", description: "推进项目状态、节点和提醒", locked: true },
+  { key: "support", name: "协同支持", description: "接收协同提醒和处理支持事项", locked: true },
+];
+
 const ROLE_PERMISSION_ROWS = [
   ["查看全部项目", "可以查看所有项目和风险清单", "是", "是", "是", "是"],
   ["编辑项目状态", "可以修改状态、节点、提醒信息", "是", "是", "是", "否"],
@@ -44,7 +53,17 @@ const WORKFLOW_CONFIG = [
   { name: "尾印单", ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 },
 ];
 
-const DEFAULT_PARTNERS = ["华墨文化", "星图少儿", "四时阅读", "自有项目", "书田学院", "旧闻书局", "晴窗文化", "城市读本", "光谱教育"];
+const DEFAULT_PARTNERS = [
+  { id: "partner-huamo", name: "华墨文化", contact: "李岚", phone: "13800000001", address: "北京", note: "重点人文书合作方" },
+  { id: "partner-xingtu", name: "星图少儿", contact: "赵青", phone: "13800000002", address: "上海", note: "少儿彩图项目合作方" },
+  { id: "partner-sishi", name: "四时阅读", contact: "周南", phone: "13800000003", address: "杭州", note: "生活方式图文书合作方" },
+  { id: "partner-owned", name: "自有项目", contact: "", phone: "", address: "", note: "内部项目，不对应外部合作方" },
+  { id: "partner-shutian", name: "书田学院", contact: "何川", phone: "13800000004", address: "南京", note: "培训与实务类项目合作方" },
+  { id: "partner-jiuwen", name: "旧闻书局", contact: "林乔", phone: "13800000005", address: "苏州", note: "历史档案类项目合作方" },
+  { id: "partner-qingchuang", name: "晴窗文化", contact: "陈晓", phone: "13800000006", address: "广州", note: "访谈与设计类项目合作方" },
+  { id: "partner-city", name: "城市读本", contact: "宋悦", phone: "13800000007", address: "成都", note: "城市文化类项目合作方" },
+  { id: "partner-spectrum", name: "光谱教育", contact: "王楠", phone: "13800000008", address: "深圳", note: "教育类项目合作方" },
+];
 
 const PROJECT_BLUEPRINTS = [
   ["BK-2026-001", "江南旧影：近代书店档案选", "林书远", "周雯", "华墨文化", "排版校稿中", "二校", -42, 6, -27, "回收作者二校眉批并锁定三校排期", "作者回稿比计划晚 4 天，本周必须完成三校准备。", "夏季档重点人文书，目录已经稳定，正文需要统一脚注样式。", "周雯", 1],
@@ -175,16 +194,15 @@ function createSeedProject(row) {
   };
 }
 
-function defaultPermissionRows() {
+function defaultPermissionRows(roles = DEFAULT_ROLES) {
   return ROLE_PERMISSION_ROWS.map((row) => ({
     label: row[0],
     description: row[1],
-    values: {
-      admin: row[2],
-      manager: row[3],
-      editor: row[4],
-      support: row[5],
-    },
+    values: roles.reduce((values, role) => {
+      const roleIndex = DEFAULT_ROLES.findIndex((item) => item.key === role.key);
+      values[role.key] = roleIndex >= 0 ? row[roleIndex + 2] : "否";
+      return values;
+    }, {}),
   }));
 }
 
@@ -193,7 +211,9 @@ function createDefaultState() {
     version: 1,
     projects: PROJECT_BLUEPRINTS.map(createSeedProject),
     teamMembers: clone(TEAM_MEMBERS),
-    permissionRows: defaultPermissionRows(),
+    departments: clone(DEFAULT_DEPARTMENTS),
+    roles: clone(DEFAULT_ROLES),
+    permissionRows: defaultPermissionRows(DEFAULT_ROLES),
     partners: clone(DEFAULT_PARTNERS),
     workflowConfig: clone(WORKFLOW_CONFIG),
     currentUserId: TEAM_MEMBERS[0].id,
@@ -205,6 +225,8 @@ module.exports = {
   STATUS_ORDER,
   NODE_ORDER,
   TEAM_MEMBERS,
+  DEFAULT_DEPARTMENTS,
+  DEFAULT_ROLES,
   WORKFLOW_CONFIG,
   DEFAULT_PARTNERS,
   ROLE_PERMISSION_ROWS,

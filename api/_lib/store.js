@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 
-const { createDefaultState } = require("./demo-state");
+const { createDefaultState, DEFAULT_DEPARTMENTS, DEFAULT_ROLES, DEFAULT_PARTNERS, ROLE_PERMISSION_ROWS } = require("./demo-state");
 
 const BLOB_PATHNAME = "workpad/state.json";
 
@@ -12,6 +12,110 @@ function nowIso() {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function textValue(value) {
+  return String(value ?? "").trim();
+}
+
+function sortZh(values) {
+  return values.sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+}
+
+function uniqueText(values) {
+  return sortZh([...new Set(values.map(textValue).filter(Boolean))]);
+}
+
+function recordId(prefix, value) {
+  const raw = textValue(value);
+  const ascii = raw.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 24);
+  if (ascii) return `${prefix}-${ascii}`;
+  const encoded = Array.from(raw || String(Date.now()))
+    .map((char) => char.charCodeAt(0).toString(36))
+    .join("")
+    .slice(0, 24);
+  return `${prefix}-${encoded || Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeDepartments(departments, members = []) {
+  const base = Array.isArray(departments) && departments.length ? departments : DEFAULT_DEPARTMENTS;
+  return uniqueText([...base, ...members.map((member) => member.department), "未分配部门"]);
+}
+
+function normalizeRoles(roles) {
+  const normalized = new Map(DEFAULT_ROLES.map((role) => [role.key, clone(role)]));
+  (Array.isArray(roles) ? roles : []).forEach((role, index) => {
+    const source = typeof role === "string" ? { name: role } : role || {};
+    const name = textValue(source.name);
+    if (!name) return;
+    const defaultRole = DEFAULT_ROLES.find((item) => item.key === source.key || item.name === name);
+    const key = textValue(defaultRole?.key || source.key || recordId("role", `${name}-${index}`));
+    normalized.set(key, {
+      key,
+      name,
+      description: textValue(source.description || defaultRole?.description || "自定义角色"),
+      locked: Boolean(defaultRole?.locked || source.locked),
+    });
+  });
+  return Array.from(normalized.values());
+}
+
+function defaultPermissionRows(roles = DEFAULT_ROLES) {
+  return ROLE_PERMISSION_ROWS.map((row) => ({
+    label: row[0],
+    description: row[1],
+    values: roles.reduce((values, role) => {
+      const roleIndex = DEFAULT_ROLES.findIndex((item) => item.key === role.key);
+      values[role.key] = roleIndex >= 0 ? row[roleIndex + 2] : "否";
+      return values;
+    }, {}),
+  }));
+}
+
+function normalizePermissionRows(rows, roles) {
+  const defaults = defaultPermissionRows(roles);
+  return defaults.map((defaultRow) => {
+    const existing = (Array.isArray(rows) ? rows : []).find((row) => row.label === defaultRow.label) || {};
+    const values = { ...defaultRow.values, ...(existing.values || {}) };
+    roles.forEach((role) => {
+      if (!["是", "否"].includes(values[role.key])) values[role.key] = "否";
+    });
+    return {
+      label: defaultRow.label,
+      description: textValue(existing.description || defaultRow.description),
+      values,
+    };
+  });
+}
+
+function normalizePartnerProfile(partner, index = 0) {
+  const source = typeof partner === "string" ? { name: partner } : partner || {};
+  const fallback = DEFAULT_PARTNERS.find((item) => item.id === source.id || item.name === source.name) || {};
+  const name = textValue(source.name || fallback.name);
+  if (!name) return null;
+  return {
+    id: textValue(source.id || fallback.id || recordId("partner", `${name}-${index}`)),
+    name,
+    contact: textValue(source.contact || fallback.contact),
+    phone: textValue(source.phone || fallback.phone),
+    address: textValue(source.address || fallback.address),
+    note: textValue(source.note || fallback.note || "项目录入时通过选择进入"),
+  };
+}
+
+function normalizePartners(partners, projects = []) {
+  const byName = new Map();
+  (Array.isArray(partners) ? partners : []).forEach((partner, index) => {
+    const profile = normalizePartnerProfile(partner, index);
+    if (profile) byName.set(profile.name, profile);
+  });
+  projects.map((project) => project.partner).filter(Boolean).forEach((name) => {
+    if (!byName.has(name)) {
+      const profile = normalizePartnerProfile(name, byName.size);
+      if (profile) byName.set(profile.name, profile);
+    }
+  });
+  return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"));
 }
 
 function normalizeReminderDate(value, fallback) {
@@ -36,12 +140,17 @@ function normalizeProjects(projects) {
 function normalizeState(rawState) {
   const seed = createDefaultState();
   const state = rawState && typeof rawState === "object" ? rawState : {};
+  const projects = Array.isArray(state.projects) && state.projects.length ? normalizeProjects(state.projects) : seed.projects;
+  const teamMembers = Array.isArray(state.teamMembers) && state.teamMembers.length ? state.teamMembers : seed.teamMembers;
+  const roles = normalizeRoles(state.roles);
   return {
     version: 1,
-    projects: Array.isArray(state.projects) && state.projects.length ? normalizeProjects(state.projects) : seed.projects,
-    teamMembers: Array.isArray(state.teamMembers) && state.teamMembers.length ? state.teamMembers : seed.teamMembers,
-    permissionRows: Array.isArray(state.permissionRows) && state.permissionRows.length ? state.permissionRows : seed.permissionRows,
-    partners: Array.isArray(state.partners) && state.partners.length ? state.partners : seed.partners,
+    projects,
+    teamMembers,
+    departments: normalizeDepartments(state.departments, teamMembers),
+    roles,
+    permissionRows: normalizePermissionRows(state.permissionRows, roles),
+    partners: Array.isArray(state.partners) ? normalizePartners(state.partners, projects) : seed.partners,
     workflowConfig: Array.isArray(state.workflowConfig) && state.workflowConfig.length ? state.workflowConfig : seed.workflowConfig,
     currentUserId: state.currentUserId || seed.currentUserId,
     wecomInbox: Array.isArray(state.wecomInbox) ? state.wecomInbox.slice(0, 200) : [],

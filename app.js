@@ -52,6 +52,15 @@ const TEAM_MEMBERS = [
   { id: "user-sun", name: "孙妍", role: "协同支持", department: "发行支持", wecomUserId: "sunyan" },
 ];
 
+const DEFAULT_DEPARTMENTS = ["出版一组", "出版二组", "少儿编辑部", "法务支持", "发行支持", "未分配部门"];
+
+const DEFAULT_ROLES = [
+  { key: "admin", name: "超级管理员", description: "拥有全部后台配置权限", locked: true },
+  { key: "manager", name: "项目主管", description: "管理项目、合作方和流程配置", locked: true },
+  { key: "editor", name: "编辑", description: "推进项目状态、节点和提醒", locked: true },
+  { key: "support", name: "协同支持", description: "接收协同提醒和处理支持事项", locked: true },
+];
+
 const ROLE_PERMISSION_ROWS = [
   ["查看全部项目", "可以查看所有项目和风险清单", "是", "是", "是", "是"],
   ["编辑项目状态", "可以修改状态、节点、提醒信息", "是", "是", "是", "否"],
@@ -74,7 +83,17 @@ const WORKFLOW_CONFIG = [
   { name: "尾印单", ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 },
 ];
 
-const DEFAULT_PARTNERS = ["华墨文化", "星图少儿", "四时阅读", "自有项目", "书田学院", "旧闻书局", "晴窗文化", "城市读本", "光谱教育"];
+const DEFAULT_PARTNERS = [
+  { id: "partner-huamo", name: "华墨文化", contact: "李岚", phone: "13800000001", address: "北京", note: "重点人文书合作方" },
+  { id: "partner-xingtu", name: "星图少儿", contact: "赵青", phone: "13800000002", address: "上海", note: "少儿彩图项目合作方" },
+  { id: "partner-sishi", name: "四时阅读", contact: "周南", phone: "13800000003", address: "杭州", note: "生活方式图文书合作方" },
+  { id: "partner-owned", name: "自有项目", contact: "", phone: "", address: "", note: "内部项目，不对应外部合作方" },
+  { id: "partner-shutian", name: "书田学院", contact: "何川", phone: "13800000004", address: "南京", note: "培训与实务类项目合作方" },
+  { id: "partner-jiuwen", name: "旧闻书局", contact: "林乔", phone: "13800000005", address: "苏州", note: "历史档案类项目合作方" },
+  { id: "partner-qingchuang", name: "晴窗文化", contact: "陈晓", phone: "13800000006", address: "广州", note: "访谈与设计类项目合作方" },
+  { id: "partner-city", name: "城市读本", contact: "宋悦", phone: "13800000007", address: "成都", note: "城市文化类项目合作方" },
+  { id: "partner-spectrum", name: "光谱教育", contact: "王楠", phone: "13800000008", address: "深圳", note: "教育类项目合作方" },
+];
 
 const PROJECT_BLUEPRINTS = [
   ["BK-2026-001", "江南旧影：近代书店档案选", "林书远", "周雯", "华墨文化", "排版校稿中", "二校", -42, 6, -27, "回收作者二校眉批并锁定三校排期", "作者回稿比计划晚 4 天，本周必须完成三校准备。", "夏季档重点人文书，目录已经稳定，正文需要统一脚注样式。", "周雯", 1],
@@ -91,17 +110,14 @@ const PROJECT_BLUEPRINTS = [
   ["BK-2026-012", "给孩子的印刷小百科", "陶溪", "刘珂", "星图少儿", "作者沟通中", "作者沟通", -12, 14, -182, "确认插图授权范围与补充采访时间", "已连续 7 天未更新，需要尽快推进作者确认。", "少儿百科，信息量大，资料和图片授权同步推进。", "刘珂", 0],
 ];
 
-const ROLE_KEY_MAP = {
-  超级管理员: "admin",
-  项目主管: "manager",
-  编辑: "editor",
-  协同支持: "support",
-};
+const ROLE_KEY_MAP = Object.fromEntries(DEFAULT_ROLES.map((role) => [role.name, role.key]));
 
 const ADMIN_TAB_RULES = {
   overview: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
   ai: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
   users: ["管理人员"],
+  departments: ["管理人员"],
+  roles: ["管理权限"],
   permissions: ["管理权限"],
   partners: ["管理合作方"],
   workflow: ["管理流程节点"],
@@ -110,6 +126,8 @@ const ADMIN_TAB_RULES = {
 const state = {
   projects: [],
   teamMembers: [],
+  departments: [],
+  roles: [],
   permissionRows: [],
   partners: [],
   workflowConfig: [],
@@ -219,17 +237,108 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function defaultPermissionRows() {
+function textValue(value) {
+  return String(value ?? "").trim();
+}
+
+function sortZh(values) {
+  return values.sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+}
+
+function uniqueText(values) {
+  return sortZh([...new Set(values.map(textValue).filter(Boolean))]);
+}
+
+function recordId(prefix, value) {
+  const raw = textValue(value);
+  const ascii = raw.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 24);
+  if (ascii) return `${prefix}-${ascii}`;
+  const encoded = Array.from(raw || String(Date.now()))
+    .map((char) => char.charCodeAt(0).toString(36))
+    .join("")
+    .slice(0, 24);
+  return `${prefix}-${encoded || Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeDepartments(departments, members = []) {
+  const base = Array.isArray(departments) && departments.length ? departments : DEFAULT_DEPARTMENTS;
+  return uniqueText([...base, ...members.map((member) => member.department), "未分配部门"]);
+}
+
+function normalizeRoles(roles) {
+  const normalized = new Map(DEFAULT_ROLES.map((role) => [role.key, clone(role)]));
+  (Array.isArray(roles) ? roles : []).forEach((role, index) => {
+    const source = typeof role === "string" ? { name: role } : role || {};
+    const name = textValue(source.name);
+    if (!name) return;
+    const defaultRole = DEFAULT_ROLES.find((item) => item.key === source.key || item.name === name);
+    const key = textValue(defaultRole?.key || source.key || recordId("role", `${name}-${index}`));
+    normalized.set(key, {
+      key,
+      name,
+      description: textValue(source.description || defaultRole?.description || "自定义角色"),
+      locked: Boolean(defaultRole?.locked || source.locked),
+    });
+  });
+  return Array.from(normalized.values());
+}
+
+function defaultPermissionRows(roles = DEFAULT_ROLES) {
   return ROLE_PERMISSION_ROWS.map((row) => ({
     label: row[0],
     description: row[1],
-    values: {
-      admin: row[2],
-      manager: row[3],
-      editor: row[4],
-      support: row[5],
-    },
+    values: roles.reduce((values, role) => {
+      const roleIndex = DEFAULT_ROLES.findIndex((item) => item.key === role.key);
+      values[role.key] = roleIndex >= 0 ? row[roleIndex + 2] : "否";
+      return values;
+    }, {}),
   }));
+}
+
+function normalizePermissionRows(rows, roles = DEFAULT_ROLES) {
+  const defaults = defaultPermissionRows(roles);
+  return defaults.map((defaultRow) => {
+    const existing = (Array.isArray(rows) ? rows : []).find((row) => row.label === defaultRow.label) || {};
+    const values = { ...defaultRow.values, ...(existing.values || {}) };
+    roles.forEach((role) => {
+      if (!["是", "否"].includes(values[role.key])) values[role.key] = "否";
+    });
+    return {
+      label: defaultRow.label,
+      description: textValue(existing.description || defaultRow.description),
+      values,
+    };
+  });
+}
+
+function normalizePartnerProfile(partner, index = 0) {
+  const source = typeof partner === "string" ? { name: partner } : partner || {};
+  const fallback = DEFAULT_PARTNERS.find((item) => item.id === source.id || item.name === source.name) || {};
+  const name = textValue(source.name || fallback.name);
+  if (!name) return null;
+  return {
+    id: textValue(source.id || fallback.id || recordId("partner", `${name}-${index}`)),
+    name,
+    contact: textValue(source.contact || fallback.contact),
+    phone: textValue(source.phone || fallback.phone),
+    address: textValue(source.address || fallback.address),
+    note: textValue(source.note || fallback.note || "项目录入时通过选择进入"),
+  };
+}
+
+function normalizePartners(partners, projects = []) {
+  const byName = new Map();
+  (Array.isArray(partners) ? partners : []).forEach((partner, index) => {
+    const profile = normalizePartnerProfile(partner, index);
+    if (profile) byName.set(profile.name, profile);
+  });
+  projects.map((project) => project.partner).filter(Boolean).forEach((name) => {
+    if (!byName.has(name)) {
+      const profile = normalizePartnerProfile(name, byName.size);
+      if (profile) byName.set(profile.name, profile);
+    }
+  });
+  return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"));
 }
 
 function normalizeTeamMembers(members) {
@@ -254,8 +363,10 @@ function loadSettings() {
     if (raw) {
       const parsed = JSON.parse(raw);
       state.teamMembers = Array.isArray(parsed.teamMembers) && parsed.teamMembers.length ? normalizeTeamMembers(parsed.teamMembers) : clone(TEAM_MEMBERS);
-      state.permissionRows = Array.isArray(parsed.permissionRows) && parsed.permissionRows.length ? parsed.permissionRows : defaultPermissionRows();
-      state.partners = Array.isArray(parsed.partners) && parsed.partners.length ? parsed.partners : clone(DEFAULT_PARTNERS);
+      state.departments = normalizeDepartments(parsed.departments, state.teamMembers);
+      state.roles = normalizeRoles(parsed.roles);
+      state.permissionRows = normalizePermissionRows(parsed.permissionRows, state.roles);
+      state.partners = Array.isArray(parsed.partners) ? normalizePartners(parsed.partners) : clone(DEFAULT_PARTNERS);
       state.workflowConfig = Array.isArray(parsed.workflowConfig) && parsed.workflowConfig.length ? parsed.workflowConfig : clone(WORKFLOW_CONFIG);
       state.currentUserId = parsed.currentUserId || TEAM_MEMBERS[0].id;
       return;
@@ -263,7 +374,9 @@ function loadSettings() {
   } catch (error) {
   }
   state.teamMembers = clone(TEAM_MEMBERS);
-  state.permissionRows = defaultPermissionRows();
+  state.departments = normalizeDepartments(DEFAULT_DEPARTMENTS, state.teamMembers);
+  state.roles = normalizeRoles(DEFAULT_ROLES);
+  state.permissionRows = defaultPermissionRows(state.roles);
   state.partners = clone(DEFAULT_PARTNERS);
   state.workflowConfig = clone(WORKFLOW_CONFIG);
 }
@@ -273,6 +386,8 @@ function saveSettings() {
     SETTINGS_KEY,
     JSON.stringify({
       teamMembers: state.teamMembers,
+      departments: state.departments,
+      roles: state.roles,
       permissionRows: state.permissionRows,
       partners: state.partners,
       workflowConfig: state.workflowConfig,
@@ -287,6 +402,8 @@ function exportStateSnapshot() {
     version: 1,
     projects: state.projects,
     teamMembers: state.teamMembers,
+    departments: state.departments,
+    roles: state.roles,
     permissionRows: state.permissionRows,
     partners: state.partners,
     workflowConfig: state.workflowConfig,
@@ -298,10 +415,12 @@ function exportStateSnapshot() {
 function applyStateSnapshot(snapshot) {
   const seedSettings = clone(TEAM_MEMBERS);
   state.teamMembers = Array.isArray(snapshot.teamMembers) && snapshot.teamMembers.length ? normalizeTeamMembers(snapshot.teamMembers) : seedSettings;
-  state.permissionRows = Array.isArray(snapshot.permissionRows) && snapshot.permissionRows.length ? snapshot.permissionRows : defaultPermissionRows();
-  state.partners = Array.isArray(snapshot.partners) && snapshot.partners.length ? snapshot.partners : clone(DEFAULT_PARTNERS);
+  state.departments = normalizeDepartments(snapshot.departments, state.teamMembers);
+  state.roles = normalizeRoles(snapshot.roles);
+  state.permissionRows = normalizePermissionRows(snapshot.permissionRows, state.roles);
   state.workflowConfig = Array.isArray(snapshot.workflowConfig) && snapshot.workflowConfig.length ? snapshot.workflowConfig : clone(WORKFLOW_CONFIG);
   state.projects = Array.isArray(snapshot.projects) && snapshot.projects.length ? snapshot.projects.map(normalizeProject) : seedProjects();
+  state.partners = Array.isArray(snapshot.partners) ? normalizePartners(snapshot.partners, state.projects) : clone(DEFAULT_PARTNERS);
   state.wecomInbox = Array.isArray(snapshot.wecomInbox) ? snapshot.wecomInbox : [];
   state.currentUserId = state.teamMembers.some((item) => item.id === snapshot.currentUserId) ? snapshot.currentUserId : state.teamMembers[0].id;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.projects));
@@ -309,6 +428,8 @@ function applyStateSnapshot(snapshot) {
     SETTINGS_KEY,
     JSON.stringify({
       teamMembers: state.teamMembers,
+      departments: state.departments,
+      roles: state.roles,
       permissionRows: state.permissionRows,
       partners: state.partners,
       workflowConfig: state.workflowConfig,
@@ -556,8 +677,17 @@ function createSeedProject(row) {
 }
 
 function getPartners() {
-  const fromProjects = state.projects.map((item) => item.partner).filter(Boolean);
-  return [...new Set([...(state.partners || []), ...fromProjects])].sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+  state.partners = normalizePartners(state.partners, state.projects);
+  return state.partners.map((partner) => partner.name);
+}
+
+function getPartnerProfiles() {
+  state.partners = normalizePartners(state.partners, state.projects);
+  return state.partners;
+}
+
+function findPartnerProfile(name) {
+  return getPartnerProfiles().find((partner) => partner.name === name) || normalizePartnerProfile(name);
 }
 
 function normalizeProject(project) {
@@ -646,7 +776,23 @@ function riskChip(level) {
 }
 
 function roleKey(role) {
-  return ROLE_KEY_MAP[role] || "editor";
+  const normalizedRoles = state.roles.length ? state.roles : normalizeRoles(DEFAULT_ROLES);
+  return normalizedRoles.find((item) => item.name === role)?.key || ROLE_KEY_MAP[role] || "editor";
+}
+
+function roleNameByKey(key) {
+  const normalizedRoles = state.roles.length ? state.roles : normalizeRoles(DEFAULT_ROLES);
+  return normalizedRoles.find((item) => item.key === key)?.name || DEFAULT_ROLES.find((item) => item.key === key)?.name || "编辑";
+}
+
+function roleOptions() {
+  state.roles = normalizeRoles(state.roles);
+  return state.roles;
+}
+
+function departmentOptions() {
+  state.departments = normalizeDepartments(state.departments, state.teamMembers);
+  return state.departments;
 }
 
 function currentUser() {
@@ -859,7 +1005,7 @@ function adminCards() {
   return [
     ["人员总数", String(state.teamMembers.length), "含编辑、主管和协同支持", "#23404d"],
     ["合作方总数", String(getPartners().length), "项目录入时通过选择进入", "#a4482f"],
-    ["角色模板", "4", "当前使用四类标准角色", "#697443"],
+    ["角色模板", String(roleOptions().length), "后台可维护角色并分配权限", "#697443"],
     ["在途负责人", String(activeOwners), "当前至少有一个在途项目的成员", "#b67c1f"],
   ];
 }
@@ -878,6 +1024,8 @@ function renderAdminNav() {
     ["overview", "后台概览", "先看整体配置状态"],
     ["ai", "AI 管家", "自然语言理解和后台问答"],
     ["users", "人员录入", "人员名单、角色和部门"],
+    ["departments", "组织部门", "人员安排时从部门里选择"],
+    ["roles", "角色管理", "建立角色并接入权限矩阵"],
     ["permissions", "权限分配", "按角色查看权限矩阵"],
     ["partners", "合作方管理", "合作方主数据和项目引用"],
     ["workflow", "流程节点配置", "节点说明、提醒角色和标准节奏"],
@@ -1184,6 +1332,8 @@ function renderAdminContent() {
     overview: ["后台概览", "适合先确认人员、合作方、权限和流程节点是否齐。"],
     ai: ["AI 管家", "已接入云雾 DeepSeek V4 Flash，用来理解自然语言并辅助整理订单动作。"],
     users: ["人员录入", `当前共 ${state.teamMembers.length} 名成员。`],
+    departments: ["组织部门", `当前共 ${departmentOptions().length} 个部门，人员安排时从这里选择。`],
+    roles: ["角色管理", `当前共 ${roleOptions().length} 个角色，权限矩阵会按角色同步展示。`],
     permissions: ["权限分配", "当前可以在这里调整角色权限矩阵。"],
     partners: ["合作方管理", `当前已整理 ${getPartners().length} 个合作方，项目录入时已改成通过选择进入。`],
     workflow: ["流程节点配置", "节点名称、提醒角色和标准节奏先在后台集中展示。"],
@@ -1199,10 +1349,12 @@ function renderAdminContent() {
           <div class="inline-chips">
             <span class="chip chip-status">前后台切换</span>
             <span class="chip chip-status">按项目 / 按人员双视图</span>
-            <span class="chip chip-status">人员模块</span>
-            <span class="chip chip-status">权限矩阵</span>
-            <span class="chip chip-status">合作方管理</span>
-            <span class="chip chip-status">流程节点配置</span>
+              <span class="chip chip-status">人员模块</span>
+              <span class="chip chip-status">组织部门</span>
+              <span class="chip chip-status">角色管理</span>
+              <span class="chip chip-status">权限矩阵</span>
+              <span class="chip chip-status">合作方管理</span>
+              <span class="chip chip-status">流程节点配置</span>
           </div>
         </section>
         <section class="settings-panel">
@@ -1218,9 +1370,9 @@ function renderAdminContent() {
     return;
   }
 
-  if (state.adminTab === "users") {
-    const canManageUsers = hasPermission("管理人员");
-    elements.adminContent.innerHTML = `
+    if (state.adminTab === "users") {
+      const canManageUsers = hasPermission("管理人员");
+      elements.adminContent.innerHTML = `
       <div class="data-panel-stack">
         <section class="data-panel">
           <div class="table-toolbar">
@@ -1241,43 +1393,129 @@ function renderAdminContent() {
                 <td>${escapeHtml(member.name)}</td>
                 <td><span class="permission-badge">${escapeHtml(member.role)}</span></td>
                 <td>${escapeHtml(member.department)}</td>
-                <td>${escapeHtml(member.wecomUserId || "未设置")}</td>
-                <td>${wecomBindingBadge(member)}</td>
-                <td>${state.projects.filter((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status)).length}</td>
-                <td>${state.projects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length}</td>
-                <td><button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>编辑</button></td>
-              </tr>`).join("")}
-          </tbody>
-        </table>
+                  <td>${escapeHtml(member.wecomUserId || "未设置")}</td>
+                  <td>${wecomBindingBadge(member)}</td>
+                  <td>${state.projects.filter((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status)).length}</td>
+                  <td>${state.projects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length}</td>
+                  <td>
+                    <div class="table-action-group">
+                      <button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>编辑</button>
+                      <button type="button" class="table-action table-action-danger" data-admin-action="delete-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>删除</button>
+                    </div>
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+      return;
+    }
+
+    if (state.adminTab === "departments") {
+      const canManageUsers = hasPermission("管理人员");
+      elements.adminContent.innerHTML = `
+        <div class="data-panel-stack">
+          <section class="data-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>部门列表</h3>
+                <div class="mini-text">人员新增或编辑时会从这里选择部门；删除部门后，人员会归到“未分配部门”。</div>
+              </div>
+              <button type="button" class="button button-primary" data-admin-action="add-department" ${canManageUsers ? "" : "disabled"}>新增部门</button>
+            </div>
+          </section>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>部门</th><th>成员数</th><th>在途项目</th><th>操作</th></tr></thead>
+            <tbody>
+              ${departmentOptions().map((department) => {
+                const members = state.teamMembers.filter((member) => member.department === department);
+                const memberNames = new Set(members.map((member) => member.name));
+                const activeProjects = state.projects.filter((project) => memberNames.has(project.owner) && !["已完成", "已暂停"].includes(project.status)).length;
+                return `
+                  <tr>
+                    <td>${escapeHtml(department)}</td>
+                    <td>${members.length}</td>
+                    <td>${activeProjects}</td>
+                    <td>
+                      <div class="table-action-group">
+                        <button type="button" class="table-action" data-admin-action="edit-department" data-department-name="${escapeHtml(department)}" ${canManageUsers ? "" : "disabled"}>编辑</button>
+                        <button type="button" class="table-action table-action-danger" data-admin-action="delete-department" data-department-name="${escapeHtml(department)}" ${canManageUsers ? "" : "disabled"}>删除</button>
+                      </div>
+                    </td>
+                  </tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>`;
+      return;
+    }
+
+    if (state.adminTab === "roles") {
+      const canManagePermissions = hasPermission("管理权限");
+      elements.adminContent.innerHTML = `
+        <div class="data-panel-stack">
+          <section class="data-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>角色列表</h3>
+                <div class="mini-text">角色在这里建立；具体能做什么，在“权限分配”里勾选。</div>
+              </div>
+              <button type="button" class="button button-primary" data-admin-action="add-role" ${canManagePermissions ? "" : "disabled"}>新增角色</button>
+            </div>
+          </section>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>角色</th><th>说明</th><th>成员数</th><th>流程引用</th><th>类型</th><th>操作</th></tr></thead>
+            <tbody>
+              ${roleOptions().map((role) => {
+                const memberCount = state.teamMembers.filter((member) => member.role === role.name).length;
+                const workflowCount = state.workflowConfig.filter((node) => node.ownerRole === role.name || node.reminderRole === role.name).length;
+                return `
+                  <tr>
+                    <td><span class="permission-badge">${escapeHtml(role.name)}</span></td>
+                    <td>${escapeHtml(role.description || "自定义角色")}</td>
+                    <td>${memberCount}</td>
+                    <td>${workflowCount}</td>
+                    <td>${role.locked ? "系统角色" : "自定义角色"}</td>
+                    <td>
+                      <div class="table-action-group">
+                        <button type="button" class="table-action" data-admin-action="edit-role" data-role-key="${escapeHtml(role.key)}" ${canManagePermissions ? "" : "disabled"}>编辑</button>
+                        <button type="button" class="table-action table-action-danger" data-admin-action="delete-role" data-role-key="${escapeHtml(role.key)}" ${canManagePermissions && !role.locked ? "" : "disabled"}>删除</button>
+                      </div>
+                    </td>
+                  </tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>`;
+      return;
+    }
+
+    if (state.adminTab === "permissions") {
+      const canManagePermissions = hasPermission("管理权限");
+      const roles = roleOptions();
+      elements.adminContent.innerHTML = `
+        <div class="permission-panel">
+          <table class="permission-table">
+            <thead><tr><th>权限项</th><th>说明</th>${roles.map((role) => `<th>${escapeHtml(role.name)}</th>`).join("")}</tr></thead>
+            <tbody>
+              ${state.permissionRows.map((row, index) => `
+                <tr>
+                  <td>${escapeHtml(row.label)}</td>
+                  <td>${escapeHtml(row.description)}</td>
+                  ${roles.map((role) => `<td><input type="checkbox" ${row.values[role.key] === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="${escapeHtml(role.key)}" ${canManagePermissions ? "" : "disabled"} /></td>`).join("")}
+                </tr>`).join("")}
+            </tbody>
+          </table>
       </div>`;
     return;
   }
 
-  if (state.adminTab === "permissions") {
-    const canManagePermissions = hasPermission("管理权限");
-    elements.adminContent.innerHTML = `
-      <div class="permission-panel">
-        <table class="permission-table">
-          <thead><tr><th>权限项</th><th>说明</th><th>超级管理员</th><th>项目主管</th><th>编辑</th><th>协同支持</th></tr></thead>
-          <tbody>
-            ${state.permissionRows.map((row, index) => `
-              <tr>
-                <td>${escapeHtml(row.label)}</td>
-                <td>${escapeHtml(row.description)}</td>
-                <td><input type="checkbox" ${row.values.admin === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="admin" ${canManagePermissions ? "" : "disabled"} /></td>
-                <td><input type="checkbox" ${row.values.manager === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="manager" ${canManagePermissions ? "" : "disabled"} /></td>
-                <td><input type="checkbox" ${row.values.editor === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="editor" ${canManagePermissions ? "" : "disabled"} /></td>
-                <td><input type="checkbox" ${row.values.support === "是" ? "checked" : ""} data-permission-index="${index}" data-permission-role="support" ${canManagePermissions ? "" : "disabled"} /></td>
-              </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>`;
-    return;
-  }
-
-  if (state.adminTab === "partners") {
-    const canManagePartners = hasPermission("管理合作方");
-    elements.adminContent.innerHTML = `
+    if (state.adminTab === "partners") {
+      const canManagePartners = hasPermission("管理合作方");
+      elements.adminContent.innerHTML = `
       <div class="data-panel-stack">
         <section class="data-panel">
           <div class="table-toolbar">
@@ -1289,41 +1527,50 @@ function renderAdminContent() {
           </div>
         </section>
       </div>
-      <div class="table-wrapper">
-        <table>
-          <thead><tr><th>合作方</th><th>当前项目数</th><th>高风险项目</th><th>说明</th><th>操作</th></tr></thead>
-          <tbody>
-            ${getPartners().map((partner) => {
-              const partnerProjects = state.projects.filter((item) => item.partner === partner);
-              const highRisk = partnerProjects.filter((item) => getProjectRisk(item).level === "高").length;
-              return `
-                <tr>
-                  <td>${escapeHtml(partner)}</td>
-                  <td>${partnerProjects.length}</td>
-                  <td>${highRisk}</td>
-                  <td>${partner === "自有项目" ? "内部项目，不对应外部合作方" : "项目录入时通过选择进入"}</td>
-                  <td><button type="button" class="table-action" data-admin-action="edit-partner" data-partner-name="${escapeHtml(partner)}" ${canManagePartners ? "" : "disabled"}>编辑</button></td>
-                </tr>`;
-            }).join("")}
-          </tbody>
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>合作方</th><th>联系人</th><th>联系电话</th><th>地址/区域</th><th>当前项目数</th><th>高风险项目</th><th>说明</th><th>操作</th></tr></thead>
+            <tbody>
+              ${getPartnerProfiles().map((partner) => {
+                const partnerProjects = state.projects.filter((item) => item.partner === partner.name);
+                const highRisk = partnerProjects.filter((item) => getProjectRisk(item).level === "高").length;
+                return `
+                  <tr>
+                    <td>${escapeHtml(partner.name)}</td>
+                    <td>${escapeHtml(partner.contact || "未设置")}</td>
+                    <td>${escapeHtml(partner.phone || "未设置")}</td>
+                    <td>${escapeHtml(partner.address || "未设置")}</td>
+                    <td>${partnerProjects.length}</td>
+                    <td>${highRisk}</td>
+                    <td>${escapeHtml(partner.note || "项目录入时通过选择进入")}</td>
+                    <td>
+                      <div class="table-action-group">
+                        <button type="button" class="table-action" data-admin-action="edit-partner" data-partner-name="${escapeHtml(partner.name)}" ${canManagePartners ? "" : "disabled"}>编辑</button>
+                        <button type="button" class="table-action table-action-danger" data-admin-action="delete-partner" data-partner-name="${escapeHtml(partner.name)}" ${canManagePartners ? "" : "disabled"}>删除</button>
+                      </div>
+                    </td>
+                  </tr>`;
+              }).join("")}
+            </tbody>
         </table>
       </div>`;
     return;
   }
 
-  const canManageWorkflow = hasPermission("管理流程节点");
-  elements.adminContent.innerHTML = `
-    <div class="table-wrapper">
-      <table>
-        <thead><tr><th>节点</th><th>默认负责人角色</th><th>默认提醒角色</th><th>标准周期（天）</th></tr></thead>
-        <tbody>
-          ${state.workflowConfig.map((node) => `
-            <tr>
-              <td>${escapeHtml(node.name)}</td>
-              <td><input type="text" value="${escapeHtml(node.ownerRole)}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="ownerRole" ${canManageWorkflow ? "" : "disabled"} /></td>
-              <td><input type="text" value="${escapeHtml(node.reminderRole)}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="reminderRole" ${canManageWorkflow ? "" : "disabled"} /></td>
-              <td><input type="number" value="${node.cycle}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="cycle" ${canManageWorkflow ? "" : "disabled"} /></td>
-            </tr>`).join("")}
+    const canManageWorkflow = hasPermission("管理流程节点");
+    const workflowRoles = roleOptions();
+    elements.adminContent.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>节点</th><th>默认负责人角色</th><th>默认提醒角色</th><th>标准周期（天）</th></tr></thead>
+          <tbody>
+            ${state.workflowConfig.map((node) => `
+              <tr>
+                <td>${escapeHtml(node.name)}</td>
+                <td><select data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="ownerRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.ownerRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
+                <td><select data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="reminderRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.reminderRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
+                <td><input type="number" value="${node.cycle}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="cycle" ${canManageWorkflow ? "" : "disabled"} /></td>
+              </tr>`).join("")}
         </tbody>
       </table>
     </div>`;
@@ -1417,11 +1664,15 @@ function closeModal() {
 
 function openAdminModal(mode, payload) {
   if (mode === "user" && !hasPermission("管理人员")) return;
+  if (mode === "department" && !hasPermission("管理人员")) return;
+  if (mode === "role" && !hasPermission("管理权限")) return;
   if (mode === "partner" && !hasPermission("管理合作方")) return;
   state.adminEditingMode = mode;
   state.adminEditingId = payload?.id || payload || "";
   if (mode === "user") {
     const member = state.teamMembers.find((item) => item.id === state.adminEditingId);
+    const roles = roleOptions();
+    const departments = departmentOptions();
     elements.adminModalTitle.textContent = member ? "编辑人员" : "新增人员";
     elements.adminModalContent.innerHTML = `
       <form id="adminUserForm" class="project-form">
@@ -1429,10 +1680,14 @@ function openAdminModal(mode, payload) {
           <label class="field"><span>姓名</span><input name="name" type="text" value="${escapeHtml(member?.name || "")}" required /></label>
           <label class="field"><span>角色</span>
             <select name="role">
-              ${["超级管理员", "项目主管", "编辑", "协同支持"].map((role) => `<option value="${escapeHtml(role)}" ${member?.role === role ? "selected" : ""}>${escapeHtml(role)}</option>`).join("")}
+              ${roles.map((role) => `<option value="${escapeHtml(role.name)}" ${member?.role === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}
             </select>
           </label>
-          <label class="field"><span>部门</span><input name="department" type="text" value="${escapeHtml(member?.department || "")}" required /></label>
+          <label class="field"><span>部门</span>
+            <select name="department">
+              ${departments.map((department) => `<option value="${escapeHtml(department)}" ${member?.department === department ? "selected" : ""}>${escapeHtml(department)}</option>`).join("")}
+            </select>
+          </label>
           <label class="field field-full">
             <span>企微账号 UserId</span>
             <input name="wecomUserId" type="text" value="${escapeHtml(member?.wecomUserId || "")}" placeholder="例如 JiaTao / z.y" />
@@ -1445,14 +1700,48 @@ function openAdminModal(mode, payload) {
         </div>
       </form>`;
   }
+  if (mode === "department") {
+    const departmentName = String(state.adminEditingId || "");
+    elements.adminModalTitle.textContent = departmentName ? "编辑部门" : "新增部门";
+    elements.adminModalContent.innerHTML = `
+      <form id="adminDepartmentForm" class="project-form">
+        <div class="modal-form-grid">
+          <label class="field field-full"><span>部门名称</span><input name="name" type="text" value="${escapeHtml(departmentName)}" required /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="button button-ghost" data-admin-close="true">取消</button>
+          <button type="submit" class="button button-primary">保存部门</button>
+        </div>
+      </form>`;
+  }
+  if (mode === "role") {
+    const role = roleOptions().find((item) => item.key === state.adminEditingId);
+    elements.adminModalTitle.textContent = role ? "编辑角色" : "新增角色";
+    elements.adminModalContent.innerHTML = `
+      <form id="adminRoleForm" class="project-form">
+        <div class="modal-form-grid">
+          <label class="field"><span>角色名称</span><input name="name" type="text" value="${escapeHtml(role?.name || "")}" required /></label>
+          <label class="field"><span>角色类型</span><input type="text" value="${role?.locked ? "系统角色" : "自定义角色"}" disabled /></label>
+          <label class="field field-full"><span>角色说明</span><input name="description" type="text" value="${escapeHtml(role?.description || "")}" placeholder="说明这个角色一般负责什么" /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="button button-ghost" data-admin-close="true">取消</button>
+          <button type="submit" class="button button-primary">保存角色</button>
+        </div>
+      </form>`;
+  }
   if (mode === "partner") {
     const partnerName = String(state.adminEditingId || "");
+    const partner = partnerName ? findPartnerProfile(partnerName) : { name: "", contact: "", phone: "", address: "", note: "" };
     elements.adminModalTitle.textContent = partnerName ? "编辑合作方" : "新增合作方";
     elements.adminModalContent.innerHTML = `
       <form id="adminPartnerForm" class="project-form">
         <div class="modal-form-grid">
-          <label class="field field-full"><span>合作方名称</span><input name="name" type="text" value="${escapeHtml(partnerName)}" required /></label>
-          <label class="field field-full"><span>说明</span><input name="note" type="text" value="${partnerName === "自有项目" ? "内部项目，不对应外部合作方" : "项目录入时通过选择进入"}" /></label>
+          <label class="field"><span>合作方名称</span><input name="name" type="text" value="${escapeHtml(partner.name)}" required /></label>
+          <label class="field"><span>联系人</span><input name="contact" type="text" value="${escapeHtml(partner.contact || "")}" placeholder="例如 李岚" /></label>
+          <label class="field"><span>联系电话</span><input name="phone" type="text" value="${escapeHtml(partner.phone || "")}" placeholder="手机或座机" /></label>
+          <label class="field"><span>地址/区域</span><input name="address" type="text" value="${escapeHtml(partner.address || "")}" placeholder="例如 北京 / 上海" /></label>
+          <label class="field field-full"><span>说明</span><input name="note" type="text" value="${escapeHtml(partner.note || "")}" placeholder="合作范围、账期、特殊要求等" /></label>
         </div>
         <div class="modal-actions">
           <button type="button" class="button button-ghost" data-admin-close="true">取消</button>
@@ -1559,6 +1848,105 @@ function renamePartnerAcrossProjects(previousName, nextName) {
     partner: project.partner === previousName ? nextName : project.partner,
   }));
   saveProjects();
+}
+
+function renameDepartmentAcrossMembers(previousName, nextName) {
+  state.teamMembers = state.teamMembers.map((member) => ({
+    ...member,
+    department: member.department === previousName ? nextName : member.department,
+  }));
+}
+
+function renameRoleAcrossSettings(previousName, nextName) {
+  state.teamMembers = state.teamMembers.map((member) => ({
+    ...member,
+    role: member.role === previousName ? nextName : member.role,
+  }));
+  state.workflowConfig = state.workflowConfig.map((node) => ({
+    ...node,
+    ownerRole: node.ownerRole === previousName ? nextName : node.ownerRole,
+    reminderRole: node.reminderRole === previousName ? nextName : node.reminderRole,
+  }));
+}
+
+async function deleteMember(memberId) {
+  if (!hasPermission("管理人员")) return;
+  const member = state.teamMembers.find((item) => item.id === memberId);
+  if (!member) return;
+  if (state.teamMembers.length <= 1) {
+    window.alert("至少需要保留 1 名人员。");
+    return;
+  }
+  const activeProjects = state.projects.filter((project) => project.owner === member.name || project.reminderPerson === member.name).length;
+  const confirmed = window.confirm(`确定删除人员「${member.name}」吗？${activeProjects ? "相关订单会改为“未分配”，不会删除订单。" : ""}`);
+  if (!confirmed) return;
+  state.teamMembers = state.teamMembers.filter((item) => item.id !== memberId);
+  renameMemberAcrossProjects(member.name, "未分配");
+  if (state.currentUserId === memberId) state.currentUserId = state.teamMembers[0].id;
+  state.departments = normalizeDepartments(state.departments, state.teamMembers);
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function deleteDepartment(name) {
+  if (!hasPermission("管理人员")) return;
+  if (name === "未分配部门") {
+    window.alert("“未分配部门”是兜底部门，不能删除。");
+    return;
+  }
+  const memberCount = state.teamMembers.filter((member) => member.department === name).length;
+  const confirmed = window.confirm(`确定删除部门「${name}」吗？${memberCount ? "该部门下人员会归到“未分配部门”。" : ""}`);
+  if (!confirmed) return;
+  state.departments = state.departments.filter((department) => department !== name);
+  renameDepartmentAcrossMembers(name, "未分配部门");
+  state.departments = normalizeDepartments(state.departments, state.teamMembers);
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function deleteRole(key) {
+  if (!hasPermission("管理权限")) return;
+  const role = roleOptions().find((item) => item.key === key);
+  if (!role) return;
+  if (role.locked) {
+    window.alert("系统角色不能删除，可以编辑名称和说明。");
+    return;
+  }
+  const fallbackRole = roleOptions().find((item) => item.key === "editor") || roleOptions().find((item) => item.key !== key);
+  if (!fallbackRole) {
+    window.alert("至少需要保留 1 个角色。");
+    return;
+  }
+  const confirmed = window.confirm(`确定删除角色「${role.name}」吗？使用该角色的人员和流程节点会改为「${fallbackRole.name}」。`);
+  if (!confirmed) return;
+  renameRoleAcrossSettings(role.name, fallbackRole.name);
+  state.roles = state.roles.filter((item) => item.key !== key);
+  state.permissionRows = state.permissionRows.map((row) => {
+    const values = { ...row.values };
+    delete values[key];
+    return { ...row, values };
+  });
+  state.permissionRows = normalizePermissionRows(state.permissionRows, state.roles);
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function deletePartner(name) {
+  if (!hasPermission("管理合作方")) return;
+  const projectCount = state.projects.filter((project) => project.partner === name).length;
+  const confirmed = window.confirm(`确定删除合作方「${name}」吗？${projectCount ? "相关订单会清空合作方字段，不会删除订单。" : ""}`);
+  if (!confirmed) return;
+  state.partners = getPartnerProfiles().filter((partner) => partner.name !== name);
+  if (projectCount) {
+    state.projects = state.projects.map((project) => (project.partner === name ? { ...project, partner: "" } : project));
+    saveProjects();
+  }
+  saveSettings();
+  await flushRemoteSync();
+  render();
 }
 
 function renderViewState() {
@@ -1706,12 +2094,20 @@ function attachEvents() {
       return;
     }
     const button = event.target.closest("[data-admin-action]");
-    if (!button) return;
-    if (button.dataset.adminAction === "add-user") openAdminModal("user", null);
-    if (button.dataset.adminAction === "edit-user") openAdminModal("user", { id: button.dataset.memberId });
-    if (button.dataset.adminAction === "add-partner") openAdminModal("partner", "");
-    if (button.dataset.adminAction === "edit-partner") openAdminModal("partner", button.dataset.partnerName);
-  });
+      if (!button) return;
+      if (button.dataset.adminAction === "add-user") openAdminModal("user", null);
+      if (button.dataset.adminAction === "edit-user") openAdminModal("user", { id: button.dataset.memberId });
+      if (button.dataset.adminAction === "delete-user") void deleteMember(button.dataset.memberId);
+      if (button.dataset.adminAction === "add-department") openAdminModal("department", "");
+      if (button.dataset.adminAction === "edit-department") openAdminModal("department", button.dataset.departmentName);
+      if (button.dataset.adminAction === "delete-department") void deleteDepartment(button.dataset.departmentName);
+      if (button.dataset.adminAction === "add-role") openAdminModal("role", "");
+      if (button.dataset.adminAction === "edit-role") openAdminModal("role", button.dataset.roleKey);
+      if (button.dataset.adminAction === "delete-role") void deleteRole(button.dataset.roleKey);
+      if (button.dataset.adminAction === "add-partner") openAdminModal("partner", "");
+      if (button.dataset.adminAction === "edit-partner") openAdminModal("partner", button.dataset.partnerName);
+      if (button.dataset.adminAction === "delete-partner") void deletePartner(button.dataset.partnerName);
+    });
 
   elements.adminContent.addEventListener("change", (event) => {
     const target = event.target;
@@ -1776,38 +2172,105 @@ function attachEvents() {
       const formData = new FormData(event.target);
       const existing = state.teamMembers.find((item) => item.id === state.adminEditingId);
       const nextName = String(formData.get("name") || "").trim();
-      const nextRole = String(formData.get("role") || "").trim();
-      const nextDepartment = String(formData.get("department") || "").trim();
-      const nextWecomUserId = String(formData.get("wecomUserId") || "").trim();
-      if (existing) {
-        if (existing.name !== nextName) renameMemberAcrossProjects(existing.name, nextName);
-        existing.name = nextName;
+        const nextRole = String(formData.get("role") || "").trim();
+        const nextDepartment = String(formData.get("department") || "").trim();
+        const nextWecomUserId = String(formData.get("wecomUserId") || "").trim();
+        if (!nextName || !nextRole || !nextDepartment) return;
+        if (existing) {
+          if (existing.name !== nextName) renameMemberAcrossProjects(existing.name, nextName);
+          existing.name = nextName;
         existing.role = nextRole;
         existing.department = nextDepartment;
         existing.wecomUserId = nextWecomUserId;
-      } else {
-        state.teamMembers.push({ id: uid(), name: nextName, role: nextRole, department: nextDepartment, wecomUserId: nextWecomUserId });
+        } else {
+          state.teamMembers.push({ id: uid(), name: nextName, role: nextRole, department: nextDepartment, wecomUserId: nextWecomUserId });
+        }
+        state.departments = normalizeDepartments(state.departments, state.teamMembers);
+        saveSettings();
+        await flushRemoteSync();
+        closeAdminModal();
+        render();
       }
-      saveSettings();
-      await flushRemoteSync();
-      closeAdminModal();
-      render();
-    }
-    if (event.target.id === "adminPartnerForm") {
-      if (!hasPermission("管理合作方")) return;
-      const formData = new FormData(event.target);
-      const nextName = String(formData.get("name") || "").trim();
-      const previousName = String(state.adminEditingId || "");
-      if (previousName && previousName !== nextName) renamePartnerAcrossProjects(previousName, nextName);
-      if (previousName) {
-        state.partners = state.partners.map((item) => (item === previousName ? nextName : item));
-      } else if (!state.partners.includes(nextName)) {
-        state.partners.push(nextName);
+      if (event.target.id === "adminDepartmentForm") {
+        if (!hasPermission("管理人员")) return;
+        const formData = new FormData(event.target);
+        const previousName = String(state.adminEditingId || "");
+        const nextName = String(formData.get("name") || "").trim();
+        if (!nextName) return;
+        const duplicate = state.departments.some((department) => department === nextName && department !== previousName);
+        if (duplicate) {
+          window.alert("这个部门已经存在。");
+          return;
+        }
+        if (previousName) {
+          state.departments = state.departments.map((department) => (department === previousName ? nextName : department));
+          renameDepartmentAcrossMembers(previousName, nextName);
+        } else {
+          state.departments.push(nextName);
+        }
+        state.departments = normalizeDepartments(state.departments, state.teamMembers);
+        saveSettings();
+        await flushRemoteSync();
+        closeAdminModal();
+        render();
       }
-      state.partners = [...new Set(state.partners.filter(Boolean))].sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
-      saveSettings();
-      await flushRemoteSync();
-      closeAdminModal();
+      if (event.target.id === "adminRoleForm") {
+        if (!hasPermission("管理权限")) return;
+        const formData = new FormData(event.target);
+        const nextName = String(formData.get("name") || "").trim();
+        const nextDescription = String(formData.get("description") || "").trim();
+        if (!nextName) return;
+        const existing = state.roles.find((role) => role.key === state.adminEditingId);
+        const duplicate = state.roles.some((role) => role.name === nextName && role.key !== existing?.key);
+        if (duplicate) {
+          window.alert("这个角色已经存在。");
+          return;
+        }
+        if (existing) {
+          if (existing.name !== nextName) renameRoleAcrossSettings(existing.name, nextName);
+          existing.name = nextName;
+          existing.description = nextDescription || existing.description || "自定义角色";
+        } else {
+          state.roles.push({ key: recordId("role", `${nextName}-${Date.now()}`), name: nextName, description: nextDescription || "自定义角色", locked: false });
+        }
+        state.roles = normalizeRoles(state.roles);
+        state.permissionRows = normalizePermissionRows(state.permissionRows, state.roles);
+        saveSettings();
+        await flushRemoteSync();
+        closeAdminModal();
+        render();
+      }
+      if (event.target.id === "adminPartnerForm") {
+        if (!hasPermission("管理合作方")) return;
+        const formData = new FormData(event.target);
+        const nextName = String(formData.get("name") || "").trim();
+        const previousName = String(state.adminEditingId || "");
+        const existingPartner = previousName ? findPartnerProfile(previousName) : null;
+        const duplicate = getPartnerProfiles().some((partner) => partner.name === nextName && partner.name !== previousName);
+        if (!nextName) return;
+        if (duplicate) {
+          window.alert("这个合作方已经存在。");
+          return;
+        }
+        if (previousName && previousName !== nextName) renamePartnerAcrossProjects(previousName, nextName);
+        const nextPartner = {
+          id: existingPartner?.id || recordId("partner", `${nextName}-${Date.now()}`),
+          name: nextName,
+          contact: String(formData.get("contact") || "").trim(),
+          phone: String(formData.get("phone") || "").trim(),
+          address: String(formData.get("address") || "").trim(),
+          note: String(formData.get("note") || "").trim() || "项目录入时通过选择进入",
+        };
+        const currentPartners = getPartnerProfiles();
+        if (previousName) {
+          state.partners = currentPartners.map((partner) => (partner.name === previousName ? nextPartner : partner));
+        } else {
+          state.partners = [...currentPartners, nextPartner];
+        }
+        state.partners = normalizePartners(state.partners, state.projects);
+        saveSettings();
+        await flushRemoteSync();
+        closeAdminModal();
       render();
     }
   });
