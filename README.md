@@ -54,7 +54,7 @@ vercel dev --listen 4173
 12. 内置演示数据自动补回，不会因为本地数据缺项而整批消失
 13. `/api/state` 后端状态接口，前端可通过接口读写项目、人员、部门、角色、权限、合作方和流程配置
 14. `/api/health` 健康检查接口
-15. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架，提醒指令支持精确到分钟
+15. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架，提醒指令支持精确到分钟，并支持语音转文字后的自然语言提醒解析
 16. `/api/ai/chat`、`/api/ai/risk`、`/api/ai/vision` 后台 AI 管家接口，分别支持对话、风险评估和图片识别
 17. `/api/ai/config` AI 配置接口，后台可按任务配置 Base URL、模型名和供应商说明
 
@@ -88,12 +88,16 @@ vercel dev --listen 4173
 1. 对话：默认 `deepseek-v4-flash`
 2. 风险评估：默认 `deepseek-v4-flash`
 3. 图片识别：默认 `qwen3-vl-flash`
+4. 自然语言指令：默认 `deepseek-v4-flash`
+5. 语音转文字：默认 `whisper-1`
 
 如果后续需要给某个任务单独配置密钥，可使用服务端环境变量：
 
 1. `AI_CHAT_API_KEY`
 2. `AI_RISK_API_KEY`
 3. `AI_VISION_API_KEY`
+4. `AI_COMMAND_API_KEY`
+5. `AI_TRANSCRIPTION_API_KEY`
 
 ## 文件说明
 

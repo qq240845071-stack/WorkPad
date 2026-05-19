@@ -4,6 +4,8 @@ const TASK_ENV_PREFIX = {
   chat: "AI_CHAT",
   risk: "AI_RISK",
   vision: "AI_VISION",
+  command: "AI_COMMAND",
+  transcription: "AI_TRANSCRIPTION",
 };
 
 function taskKey(task) {
@@ -80,8 +82,47 @@ async function createChatCompletion({ messages, temperature = 0.3, task = "chat"
   };
 }
 
+async function createAudioTranscription({ audioBuffer, filename = "voice.amr", contentType = "application/octet-stream", prompt = "" }) {
+  const config = await getAiConfig("transcription");
+  if (!config.apiKey) {
+    throw new Error(`大模型接口还没有配置 ${config.label} 可用的 API Key。`);
+  }
+
+  const formData = new FormData();
+  const blob = new Blob([audioBuffer], { type: contentType });
+  formData.append("file", blob, filename);
+  formData.append("model", config.model);
+  formData.append("language", "zh");
+  if (prompt) formData.append("prompt", prompt);
+
+  const response = await fetch(`${config.baseUrl}/audio/transcriptions`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey}`,
+    },
+    body: formData,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.error) {
+    throw new Error(payload.error?.message || `语音转文字接口请求失败：${response.status}`);
+  }
+
+  const text = String(payload.text || payload.result || "").trim();
+  if (!text) throw new Error("语音转文字接口没有返回可用文本。");
+
+  return {
+    text,
+    model: payload.model || config.model,
+    providerName: config.providerName,
+    task: config.task,
+    usage: payload.usage || null,
+  };
+}
+
 module.exports = {
   createChatCompletion,
+  createAudioTranscription,
   getAiConfig,
   hasAiConfig,
 };

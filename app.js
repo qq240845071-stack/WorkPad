@@ -1055,6 +1055,8 @@ function defaultAiSettings() {
     chat: { label: "对话", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
     risk: { label: "风险评估", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
     vision: { label: "图片识别", providerName: "云雾 Qwen3 VL Flash", baseUrl: "https://yunwu.ai/v1", model: "qwen3-vl-flash", configured: false },
+    command: { label: "自然语言指令", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
+    transcription: { label: "语音转文字", providerName: "云雾 Whisper", baseUrl: "https://yunwu.ai/v1", model: "whisper-1", configured: false },
   };
 }
 
@@ -1078,7 +1080,7 @@ async function loadAiSettings() {
 async function saveAiSettingsFromForm(form) {
   const formData = new FormData(form);
   const tasks = {};
-  ["chat", "risk", "vision"].forEach((task) => {
+  ["chat", "risk", "vision", "command", "transcription"].forEach((task) => {
     tasks[task] = {
       providerName: String(formData.get(`${task}.providerName`) || "").trim(),
       baseUrl: String(formData.get(`${task}.baseUrl`) || "").trim(),
@@ -1175,7 +1177,7 @@ function renderAiPanel() {
     "帮我设计一个成品尺寸质检规则，要求拍到卷尺和产品边缘。",
   ];
   const settings = aiSettings();
-  const taskCards = ["chat", "risk", "vision"].map((task) => {
+  const taskCards = ["chat", "risk", "vision", "command", "transcription"].map((task) => {
     const item = settings[task] || defaultAiSettings()[task];
     return `
       <article class="ai-task-card">
@@ -1203,7 +1205,7 @@ function renderAiPanel() {
       <div class="ai-panel-head">
         <div>
           <h3>AI 配置中心</h3>
-          <div class="mini-text">按任务配置模型。API Key 只在服务端环境变量保存，后台不显示密钥内容。</div>
+          <div class="mini-text">按任务配置模型。API Key 只在服务端环境变量保存，后台不显示密钥内容。企微语音会用“语音转文字”和“自然语言指令”两项。</div>
         </div>
         <span class="chip chip-status">${state.aiConfigPending ? "保存中" : "服务端配置"}</span>
       </div>

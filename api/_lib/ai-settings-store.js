@@ -23,6 +23,18 @@ const DEFAULT_AI_SETTINGS = {
     baseUrl: "https://yunwu.ai/v1",
     model: "qwen3-vl-flash",
   },
+  command: {
+    label: "自然语言指令",
+    providerName: "云雾 DeepSeek V4 Flash",
+    baseUrl: "https://yunwu.ai/v1",
+    model: "deepseek-v4-flash",
+  },
+  transcription: {
+    label: "语音转文字",
+    providerName: "云雾 Whisper",
+    baseUrl: "https://yunwu.ai/v1",
+    model: "whisper-1",
+  },
 };
 
 function clone(value) {

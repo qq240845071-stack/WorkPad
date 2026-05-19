@@ -1,5 +1,6 @@
 const { readStoredState, writeStoredState } = require("./store");
 const { getConfig } = require("./wecom-crypto");
+const { createAudioTranscription, createChatCompletion } = require("./ai-client");
 
 function nowDate() {
   return new Date();
@@ -42,18 +43,29 @@ function findProject(state, keyword) {
 }
 
 function pushInbox(state, payload) {
+  const item = {
+    id: `wx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: dateTimeString(nowDate()),
+    ...payload,
+  };
   state.wecomInbox = [
-    {
-      id: `wx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: dateTimeString(nowDate()),
-      ...payload,
-    },
+    item,
     ...(Array.isArray(state.wecomInbox) ? state.wecomInbox : []),
   ].slice(0, 200);
+  return item;
 }
 
 function shouldStoreIncomingMessage(message) {
   return message.MsgType !== "event";
+}
+
+function messageKey(message) {
+  return String(message.MsgId || message.MsgID || [message.FromUserName, message.CreateTime, message.MsgType, message.Content || message.MediaId].join(":")).trim();
+}
+
+function updateInboxByKey(state, key, patch) {
+  const item = (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).find((entry) => entry.messageKey === key);
+  if (item) Object.assign(item, patch);
 }
 
 function projectDigest(project) {
@@ -78,6 +90,7 @@ function helpText() {
     "4. 提醒 陈敏 BK-2026-005 2026-05-20 15:30 催合同回签",
     "5. 我的提醒",
     "6. 绑定 贾涛",
+    "也可以直接发语音或自然语言：明天下午三点提醒张莹跟进 BK-2026-005 合同回签",
   ].join("\n");
 }
 
@@ -240,99 +253,310 @@ function parseCommand(content) {
   return { type: "unknown", raw: text };
 }
 
+function chinaNowText() {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day} ${value.hour}:${value.minute}`;
+}
+
+function extractJsonObject(text) {
+  const raw = String(text || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(raw.slice(start, end + 1));
+    throw error;
+  }
+}
+
+function projectCandidates(state) {
+  return state.projects
+    .filter((project) => project.status !== "已完成")
+    .slice(0, 60)
+    .map((project) => `${project.code}｜${project.title}｜负责人:${project.owner}｜节点:${project.currentNode}`)
+    .join("\n");
+}
+
+function memberCandidates(state) {
+  return state.teamMembers.map((member) => `${member.name}｜${member.role}｜${member.department}`).join("\n");
+}
+
+function normalizeAiCommand(payload) {
+  const type = String(payload?.type || "unknown").trim();
+  if (!["help", "my-reminders", "view", "record", "remind", "bind", "unknown"].includes(type)) {
+    return { type: "unknown", raw: JSON.stringify(payload || {}) };
+  }
+  const command = {
+    type,
+    memberKeyword: String(payload.memberKeyword || "").trim(),
+    projectKeyword: String(payload.projectKeyword || payload.keyword || "").trim(),
+    keyword: String(payload.keyword || payload.projectKeyword || "").trim(),
+    reminderDate: String(payload.reminderDate || "").trim(),
+    note: String(payload.note || "").trim(),
+    reason: String(payload.reason || "").trim(),
+  };
+  if (command.type === "remind") {
+    if (!command.memberKeyword) return { type: "unknown", reason: "缺少提醒人" };
+    if (!command.projectKeyword) return { type: "unknown", reason: "缺少项目" };
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(command.reminderDate)) return { type: "unknown", reason: "缺少精确到分钟的提醒时间" };
+    if (!command.note) return { type: "unknown", reason: "缺少提醒内容" };
+  }
+  if (command.type === "record" && (!command.projectKeyword || !command.note)) return { type: "unknown", reason: "记录指令缺少项目或内容" };
+  if (command.type === "view" && !command.keyword) return { type: "unknown", reason: "查看指令缺少项目" };
+  if (command.type === "bind" && !command.memberKeyword) return { type: "unknown", reason: "绑定指令缺少人员姓名" };
+  return command;
+}
+
+async function parseNaturalCommand(content, state, actor) {
+  const text = String(content || "").trim();
+  if (!text) return { type: "empty" };
+  const completion = await createChatCompletion({
+    task: "command",
+    temperature: 0.1,
+    messages: [
+      {
+        role: "system",
+        content: [
+          "你是 WorkPad 订单大看板的企业微信指令解析器，只输出 JSON，不要输出 Markdown。",
+          "目标：把员工的自然语言、语音转写文本解析为可执行命令。",
+          "可用 type：help、my-reminders、view、record、remind、bind、unknown。",
+          "remind 必须输出 memberKeyword、projectKeyword、reminderDate、note。reminderDate 必须是 YYYY-MM-DD HH:mm，必须精确到分钟。",
+          "如果用户说“提醒我”，memberKeyword 用当前说话人姓名。",
+          "record 必须输出 projectKeyword 和 note。",
+          "view 必须输出 keyword 或 projectKeyword。",
+          "bind 必须输出 memberKeyword。",
+          "项目和人员只能从候选列表里选，项目优先输出项目编号。",
+          "如果没有明确时间、项目或人员，不要猜，输出 type=unknown 并写 reason。",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `当前北京时间：${chinaNowText()}`,
+          `当前说话人：${actor}`,
+          "人员候选：",
+          memberCandidates(state),
+          "项目候选：",
+          projectCandidates(state),
+          "用户输入：",
+          text,
+          "请输出 JSON，示例：{\"type\":\"remind\",\"memberKeyword\":\"张莹\",\"projectKeyword\":\"BK-2026-005\",\"reminderDate\":\"2026-05-20 15:30\",\"note\":\"催合同回签\"}",
+        ].join("\n"),
+      },
+    ],
+  });
+  return normalizeAiCommand(extractJsonObject(completion.reply));
+}
+
+async function resolveCommand(content, state, actor, options = {}) {
+  const direct = parseCommand(content);
+  const shouldAskAi = options.preferAi || direct.type === "unknown" || direct.type === "empty" || Boolean(direct.error);
+  if (!shouldAskAi) return { command: direct, source: "rule" };
+  try {
+    const aiCommand = await parseNaturalCommand(content, state, actor);
+    if (aiCommand.type !== "unknown" && aiCommand.type !== "empty") {
+      return { command: aiCommand, source: "ai" };
+    }
+  } catch (error) {
+    return { command: direct, source: "rule", parseError: error instanceof Error ? error.message : String(error) };
+  }
+  return { command: direct, source: "rule" };
+}
+
+function mediaFileName(message) {
+  const format = String(message.Format || "amr").replace(/[^a-z0-9]/gi, "").toLowerCase() || "amr";
+  return `wecom-voice-${message.MsgId || Date.now()}.${format}`;
+}
+
+function mediaContentType(message, responseContentType) {
+  const format = String(message.Format || "").toLowerCase();
+  if (responseContentType && !responseContentType.includes("application/json")) return responseContentType;
+  if (format === "amr") return "audio/amr";
+  if (format === "speex") return "audio/speex";
+  if (format === "mp3") return "audio/mpeg";
+  if (format === "wav") return "audio/wav";
+  return "application/octet-stream";
+}
+
+async function fetchWecomMedia(message) {
+  if (!message.MediaId) throw new Error("语音消息里没有 MediaId，无法下载语音。");
+  const accessToken = await fetchAccessToken();
+  const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/media/get");
+  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("media_id", message.MediaId);
+  const response = await fetch(url);
+  const contentType = response.headers.get("content-type") || "";
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (!response.ok || contentType.includes("application/json")) {
+    const text = buffer.toString("utf8");
+    let payload = {};
+    try {
+      payload = JSON.parse(text);
+    } catch (error) {
+      payload = { errmsg: text };
+    }
+    throw new Error(payload.errmsg || `下载企业微信语音失败：${response.status}`);
+  }
+  return {
+    audioBuffer: buffer,
+    filename: mediaFileName(message),
+    contentType: mediaContentType(message, contentType),
+  };
+}
+
+async function transcribeVoiceMessage(message) {
+  const recognition = String(message.Recognition || "").trim();
+  if (recognition) return { text: recognition, source: "wecom-recognition" };
+  const media = await fetchWecomMedia(message);
+  const result = await createAudioTranscription({
+    ...media,
+    prompt: "这是出版订单管理场景下的企业微信语音指令，可能包含项目编号、人员姓名、日期、时间和提醒内容。",
+  });
+  return { text: result.text, source: "ai-transcription", model: result.model, providerName: result.providerName };
+}
+
 async function handleIncomingMessage(message) {
   const snapshot = await readStoredState();
   const state = snapshot.state;
   const actor = actorNameFromMessage(state, message.FromUserName);
-  const content = String(message.Content || "").trim();
+  const key = messageKey(message);
+  const existingInbox = (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).find((item) => item.messageKey === key);
 
-  if (shouldStoreIncomingMessage(message)) {
-    pushInbox(state, {
-      direction: "inbound",
-      fromUserId: message.FromUserName,
-      actor,
-      msgType: message.MsgType,
-      event: message.Event || "",
-      content,
-    });
+  if (existingInbox) {
+    return { replyText: "", snapshot };
   }
 
   if (message.MsgType === "event") {
     return { replyText: "", snapshot };
   }
 
-  if (message.MsgType !== "text") {
-    const saved = await writeStoredState(state);
-    return { replyText: "当前先支持文本指令。你可以发送“帮助”查看可用命令。", snapshot: saved };
+  let content = String(message.Content || "").trim();
+  let transcript = null;
+
+  if (shouldStoreIncomingMessage(message)) {
+    pushInbox(state, {
+      messageKey: key,
+      direction: "inbound",
+      fromUserId: message.FromUserName,
+      actor,
+      msgType: message.MsgType,
+      event: message.Event || "",
+      mediaId: message.MediaId || "",
+      content: content || (message.MsgType === "voice" ? "[语音待识别]" : ""),
+      status: message.MsgType === "voice" ? "processing" : "received",
+    });
+    if (message.MsgType === "voice") {
+      await writeStoredState(state);
+    }
   }
 
-  const command = parseCommand(content);
-
-  if (command.type === "help") {
+  async function saveWithReply(replyText, extra = {}) {
+    updateInboxByKey(state, key, {
+      replyText,
+      status: "done",
+      content,
+      transcript: transcript?.text || "",
+      transcriptSource: transcript?.source || "",
+    });
     const saved = await writeStoredState(state);
-    return { replyText: helpText(), snapshot: saved };
+    return { replyText, snapshot: saved, ...extra };
   }
 
-  if (command.type === "unknown" || command.type === "empty") {
-    const saved = await writeStoredState(state);
-    return { replyText: "没有识别到可执行指令。你可以发送“帮助”查看可用命令。", snapshot: saved };
-  }
-
-  if (command.type === "my-reminders") {
-    const saved = await writeStoredState(state);
-    return { replyText: myRemindersText(state, message.FromUserName), snapshot: saved };
-  }
-
-  if (command.type === "bind") {
-    const replyText = bindMemberText(state, message.FromUserName, command.memberKeyword);
+  if (message.MsgType === "voice") {
+    try {
+      transcript = await transcribeVoiceMessage(message);
+      content = transcript.text;
+      updateInboxByKey(state, key, {
+        content,
+        transcript: transcript.text,
+        transcriptSource: transcript.source,
+        status: "transcribed",
+      });
+    } catch (error) {
+      const replyText = `收到语音，但转文字失败：${error instanceof Error ? error.message : String(error)}\n可以先改发文字，例如：明天下午三点提醒张莹跟进 BK-2026-005 合同回签。`;
+      updateInboxByKey(state, key, { replyText, status: "failed", content: "[语音转文字失败]" });
+      const saved = await writeStoredState(state);
+      return { replyText, snapshot: saved };
+    }
+  } else if (message.MsgType !== "text") {
+    const replyText = "当前先支持文本和语音指令。你可以发送“帮助”查看可用命令。";
+    updateInboxByKey(state, key, { replyText, status: "unsupported" });
     const saved = await writeStoredState(state);
     return { replyText, snapshot: saved };
   }
 
+  const { command, source, parseError } = await resolveCommand(content, state, actor, { preferAi: message.MsgType === "voice" });
+
+  if (command.type === "help") {
+    return saveWithReply(helpText());
+  }
+
+  if (command.type === "unknown" || command.type === "empty") {
+    const heardText = message.MsgType === "voice" ? `\n我听到的是：${content}` : "";
+    const reason = parseError ? `\n自然语言解析暂时不可用：${parseError}` : command.reason ? `\n原因：${command.reason}` : "";
+    return saveWithReply(`没有识别到可执行指令。你可以发送“帮助”查看可用命令，或直接说：明天下午三点提醒张莹跟进 BK-2026-005 合同回签。${heardText}${reason}`);
+  }
+
+  if (command.type === "my-reminders") {
+    return saveWithReply(myRemindersText(state, message.FromUserName));
+  }
+
+  if (command.type === "bind") {
+    const replyText = bindMemberText(state, message.FromUserName, command.memberKeyword);
+    return saveWithReply(replyText);
+  }
+
   if (command.type === "view") {
-    const project = findProject(state, command.keyword);
-    const saved = await writeStoredState(state);
-    if (!project) return { replyText: `没有找到项目「${command.keyword}」，可以直接发项目编号试试。`, snapshot: saved };
-    return { replyText: projectDigest(project), snapshot: saved };
+    const keyword = command.keyword || command.projectKeyword;
+    const project = findProject(state, keyword);
+    if (!project) return saveWithReply(`没有找到项目「${keyword}」，可以直接发项目编号试试。`);
+    return saveWithReply(projectDigest(project));
   }
 
   if (command.type === "record") {
     const project = findProject(state, command.projectKeyword);
     if (!project) {
-      const saved = await writeStoredState(state);
-      return { replyText: `没有找到项目「${command.projectKeyword}」，这次记录没有写入。`, snapshot: saved };
+      return saveWithReply(`没有找到项目「${command.projectKeyword}」，这次记录没有写入。`);
     }
     updateProjectFollowUp(project, actor, command.note, command.note, "企业微信记录");
-    const saved = await writeStoredState(state);
-    return { replyText: `已记录到《${project.title}》。\n当前下一步：${project.nextAction}`, snapshot: saved, changedProject: project };
+    return saveWithReply(`已记录到《${project.title}》。\n当前下一步：${project.nextAction}`, { changedProject: project });
   }
 
   if (command.type === "remind") {
     if (command.error) {
-      const saved = await writeStoredState(state);
       const missingNote = command.error === "missing-note" ? "\n另外需要补充提醒内容，比如“催合同回签”。" : "";
-      return { replyText: `${reminderFormatTip()}${missingNote}`, snapshot: saved };
+      return saveWithReply(`${reminderFormatTip()}${missingNote}`);
     }
     const member = findMember(state, command.memberKeyword);
     const project = findProject(state, command.projectKeyword);
     if (!member) {
-      const saved = await writeStoredState(state);
-      return { replyText: `没有找到人员「${command.memberKeyword}」，请先在后台人员录入里补企微账号。`, snapshot: saved };
+      return saveWithReply(`没有找到人员「${command.memberKeyword}」，请先在后台人员录入里补企微账号。`);
     }
     if (!project) {
-      const saved = await writeStoredState(state);
-      return { replyText: `没有找到项目「${command.projectKeyword}」，这次提醒没有写入。`, snapshot: saved };
+      return saveWithReply(`没有找到项目「${command.projectKeyword}」，这次提醒没有写入。`);
     }
     project.reminderPerson = member.name;
     project.reminderDate = command.reminderDate;
     project.nextAction = command.note || project.nextAction;
     updateProjectFollowUp(project, actor, `提醒 ${member.name}：${command.note}`, command.note, "企业微信提醒");
-    const saved = await writeStoredState(state);
-    return { replyText: buildReminderText(project, command.note), snapshot: saved, changedProject: project, targetMember: member };
+    const sourceTip = source === "ai" ? "已按自然语言解析并写入提醒。" : "";
+    const transcriptTip = transcript?.text ? `语音识别：${transcript.text}` : "";
+    const replyText = [sourceTip, transcriptTip, buildReminderText(project, command.note)].filter(Boolean).join("\n\n");
+    return saveWithReply(replyText, { changedProject: project, targetMember: member });
   }
 
-  const saved = await writeStoredState(state);
-  return { replyText: helpText(), snapshot: saved };
+  return saveWithReply(helpText());
 }
 
 async function fetchAccessToken() {
