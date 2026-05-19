@@ -194,6 +194,10 @@ function buildReminderText(project, note) {
   ].filter(Boolean).join("\n");
 }
 
+function buildReminderRecordNotice(actor, member, project, note) {
+  return `${actor} 已通过企业微信记录提醒：${member.name} · ${project.reminderDate} · ${note}`;
+}
+
 function myRemindersText(state, sender) {
   const member = findMember(state, sender) || findMember(state, actorNameFromMessage(state, sender));
   if (!member) return "当前企微账号还没有在 WorkPad 人员表里建立映射，请先在后台补充企微账号 UserId。";
@@ -632,6 +636,10 @@ async function handleIncomingMessage(message) {
     project.reminderNotificationLastError = "";
     project.reminderNotificationKey = [project.id, member.name, command.reminderDate, command.note || ""].join("|");
     project.reminderNotificationAttempts = 0;
+    project.reminderRecordSource = "企业微信";
+    project.reminderRecordActor = actor;
+    project.reminderRecordAt = dateTimeString(nowDate());
+    project.reminderRecordNotice = buildReminderRecordNotice(actor, member, project, command.note);
     updateProjectFollowUp(project, actor, `提醒 ${member.name}：${command.note}`, command.note, "企业微信提醒");
     const sourceTip = source === "ai" ? "已按自然语言解析并写入提醒。" : "";
     const transcriptTip = transcript?.text ? `语音识别：${transcript.text}` : "";

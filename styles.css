@@ -752,6 +752,27 @@ body::before {
   margin-top: 14px;
 }
 
+.reminder-record-note {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(47, 114, 82, 0.16);
+  background: linear-gradient(135deg, rgba(47, 114, 82, 0.1), rgba(255, 255, 255, 0.58));
+  color: #245741;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.reminder-record-note strong {
+  font-weight: 700;
+}
+
+.reminder-record-note span {
+  color: var(--muted);
+}
+
 .empty-state {
   padding: 18px;
   border: 1px dashed rgba(31, 36, 48, 0.12);

@@ -751,6 +751,34 @@ function reminderStatus(project) {
   return dateString(project.reminderDate) === dateString(new Date()) ? "今日提醒" : "待提醒";
 }
 
+function reminderRecordNotice(project) {
+  if (project.reminderRecordNotice) return project.reminderRecordNotice;
+  const log = (project.logs || []).find((item) => item.action === "企业微信提醒");
+  if (!log) return "";
+  return `${log.actor || "企业微信"} 已通过企业微信记录提醒：${project.reminderPerson} · ${reminderTimeText(project.reminderDate)} · ${project.nextAction || log.detail}`;
+}
+
+function reminderDispatchNotice(project) {
+  if (project.reminderNotificationStatus === "sent") return "到点提醒已通过企业微信推送";
+  if (project.reminderNotificationStatus === "failed") {
+    const reason = String(project.reminderNotificationLastError || "等待下次重试").split("\n")[0];
+    return `到点推送失败：${reason}`;
+  }
+  if (project.reminderNotificationPending) return "已进入到点推送队列";
+  return "";
+}
+
+function reminderRecordHtml(project) {
+  const recordText = reminderRecordNotice(project);
+  const dispatchText = reminderDispatchNotice(project);
+  if (!recordText && !dispatchText) return "";
+  return `
+    <div class="reminder-record-note">
+      ${recordText ? `<strong>${escapeHtml(recordText)}</strong>` : ""}
+      ${dispatchText ? `<span>${escapeHtml(dispatchText)}</span>` : ""}
+    </div>`;
+}
+
 function getProjectRisk(project) {
   if (project.status === "已完成") return { level: "低", staleDays: 0, reasons: ["项目已闭环完成"], urgencyScore: 0 };
   const now = new Date();
@@ -917,6 +945,7 @@ function renderUrgentList(projects) {
         </div>
         <p class="project-author">${escapeHtml(project.owner)} · ${escapeHtml(project.status)} · ${escapeHtml(project.currentNode)}</p>
         <p class="mini-text">提醒：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderTimeText(project.reminderDate))} · ${escapeHtml(reminderStatus(project))}</p>
+        ${reminderRecordHtml(project)}
         <p class="mini-text">${escapeHtml(risk.reasons.join(" / "))}</p>
       </button>
     </article>`).join("") || `<div class="empty-state">当前没有需要优先处理的项目。</div>`;
@@ -958,6 +987,7 @@ function renderBoard(projects) {
                     <div>当前节点：${escapeHtml(project.currentNode)}</div>
                     <div>提醒：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderTimeText(project.reminderDate))} · ${escapeHtml(reminderStatus(project))}</div>
                   </div>
+                  ${reminderRecordHtml(project)}
                 </button>
               </article>`;
           }).join("") : `<div class="empty-state">当前筛选条件下，这一列没有项目。</div>`}
@@ -1611,6 +1641,7 @@ function renderDrawer() {
           <div class="overview-item"><span>提醒人</span><strong>${escapeHtml(project.reminderPerson)}</strong></div>
           <div class="overview-item"><span>提醒时间</span><strong>${escapeHtml(reminderTimeText(project.reminderDate))}</strong></div>
         </div>
+        ${reminderRecordHtml(project)}
       </section>
       <section class="detail-card">
         <h3>风险与动作</h3>
