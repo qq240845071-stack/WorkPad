@@ -1,6 +1,6 @@
 const { readStoredState } = require("../_lib/store");
 const { getConfig, hasSendConfig } = require("../_lib/wecom-crypto");
-const { sendAppTextMessage, findMember } = require("../_lib/wecom-service");
+const { sendAppTextMessage, findMember, hasWecomProxyConfig } = require("../_lib/wecom-service");
 
 async function readJsonBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -32,11 +32,14 @@ module.exports = async (req, res) => {
     return sendJson(res, 405, { ok: false, message: "当前接口只支持 POST。" });
   }
 
-  if (!hasSendConfig()) {
+  if (!hasSendConfig() && !hasWecomProxyConfig()) {
     return sendJson(res, 500, {
       ok: false,
       message: "企业微信主动发消息配置不完整。",
-      required: ["WECOM_CORP_ID", "WECOM_APP_SECRET", "WECOM_AGENT_ID"],
+      required: [
+        "直连模式：WECOM_CORP_ID、WECOM_APP_SECRET、WECOM_AGENT_ID",
+        "固定 IP 代理模式：WECOM_PROXY_BASE_URL、WECOM_PROXY_SECRET",
+      ],
     });
   }
 
@@ -77,7 +80,8 @@ module.exports = async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       toUser,
-      agentId: getConfig().agentId,
+      agentId: getConfig().agentId || "fixed-ip-proxy",
+      fixedIpProxy: hasWecomProxyConfig(),
       result,
     });
   } catch (error) {

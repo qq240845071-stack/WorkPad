@@ -1,0 +1,10 @@
+{
+  "name": "workpad-wecom-fixed-ip-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WorkPad 企业微信固定公网出口 IP 代理",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  }
+}

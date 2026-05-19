@@ -76,11 +76,71 @@ function friendlyWecomError(payload, fallback) {
     return [
       "企业微信接口被“可信 IP”拦截。",
       ip ? `当前服务器出口 IP：${ip}` : "",
-      "处理办法：到企业微信后台把这个 IP 加到自建应用的可信 IP / IP 白名单里，然后再发一次语音。",
-      "说明：如果企业微信回调没有带语音识别文本，WorkPad 必须调用企业微信接口下载语音素材，所以会触发可信 IP 校验。",
+      hasWecomProxyConfig()
+        ? "处理办法：当前已启用固定 IP 代理，请把代理服务器的固定公网 IP 加到企业微信自建应用可信 IP / IP 白名单里。"
+        : "处理办法：短期可以把这个 IP 加到企业微信自建应用可信 IP / IP 白名单里；长期建议启用 WorkPad 固定 IP 代理。",
+      "说明：企业微信获取 access_token、下载语音素材、主动发消息都会触发可信 IP 校验。",
     ].filter(Boolean).join("\n");
   }
   return message;
+}
+
+function getWecomProxyConfig() {
+  return {
+    baseUrl: String(process.env.WECOM_PROXY_BASE_URL || process.env.WECOM_PROXY_URL || "").trim().replace(/\/+$/, ""),
+    secret: String(process.env.WECOM_PROXY_SECRET || "").trim(),
+  };
+}
+
+function hasWecomProxyConfig() {
+  const { baseUrl, secret } = getWecomProxyConfig();
+  return Boolean(baseUrl && secret);
+}
+
+async function requestWecomProxyJson(path, body) {
+  const { baseUrl, secret } = getWecomProxyConfig();
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${secret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body || {}),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.error || payload.errcode) {
+    throw new Error(friendlyWecomError(payload, `企业微信固定 IP 代理请求失败：${response.status}`));
+  }
+  return payload;
+}
+
+async function requestWecomProxyMedia(message) {
+  const { baseUrl, secret } = getWecomProxyConfig();
+  const url = new URL(`${baseUrl}/media`);
+  url.searchParams.set("mediaId", message.MediaId);
+  url.searchParams.set("format", String(message.Format || "amr"));
+  const response = await fetch(url, {
+    headers: {
+      "Authorization": `Bearer ${secret}`,
+    },
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (!response.ok || contentType.includes("application/json")) {
+    let payload = {};
+    try {
+      payload = JSON.parse(buffer.toString("utf8"));
+    } catch (error) {
+      payload = { message: buffer.toString("utf8") };
+    }
+    throw new Error(friendlyWecomError(payload, `企业微信固定 IP 代理下载语音失败：${response.status}`));
+  }
+  return {
+    audioBuffer: buffer,
+    filename: mediaFileName(message),
+    contentType: mediaContentType(message, contentType),
+  };
 }
 
 function projectDigest(project) {
@@ -405,6 +465,7 @@ function mediaContentType(message, responseContentType) {
 
 async function fetchWecomMedia(message) {
   if (!message.MediaId) throw new Error("语音消息里没有 MediaId，无法下载语音。");
+  if (hasWecomProxyConfig()) return requestWecomProxyMedia(message);
   const accessToken = await fetchAccessToken();
   const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/media/get");
   url.searchParams.set("access_token", accessToken);
@@ -575,6 +636,11 @@ async function handleIncomingMessage(message) {
 }
 
 async function fetchAccessToken() {
+  if (hasWecomProxyConfig()) {
+    const result = await requestWecomProxyJson("/token", {});
+    if (!result.access_token) throw new Error("固定 IP 代理没有返回企业微信 access_token。");
+    return result.access_token;
+  }
   const { corpId, appSecret } = getConfig();
   const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/gettoken");
   url.searchParams.set("corpid", corpId);
@@ -588,6 +654,9 @@ async function fetchAccessToken() {
 }
 
 async function sendAppTextMessage({ toUser, content }) {
+  if (hasWecomProxyConfig()) {
+    return requestWecomProxyJson("/send-text", { toUser, content });
+  }
   const { agentId } = getConfig();
   const accessToken = await fetchAccessToken();
   const response = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${accessToken}`, {
@@ -612,6 +681,7 @@ async function sendAppTextMessage({ toUser, content }) {
 module.exports = {
   handleIncomingMessage,
   sendAppTextMessage,
+  hasWecomProxyConfig,
   findMember,
   findProject,
   projectDigest,

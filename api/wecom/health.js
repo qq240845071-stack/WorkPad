@@ -1,5 +1,6 @@
 const { readStoredState } = require("../_lib/store");
 const { hasCallbackConfig, hasSendConfig, getConfig } = require("../_lib/wecom-crypto");
+const { hasWecomProxyConfig } = require("../_lib/wecom-service");
 
 module.exports = async (_req, res) => {
   try {
@@ -9,12 +10,15 @@ module.exports = async (_req, res) => {
     res.end(JSON.stringify({
       ok: true,
       callbackConfigured: hasCallbackConfig(),
-      sendConfigured: hasSendConfig(),
+      sendConfigured: hasSendConfig() || hasWecomProxyConfig(),
       corpIdReady: Boolean(getConfig().corpId),
       agentIdReady: Boolean(getConfig().agentId),
       tokenReady: Boolean(getConfig().token),
       aesKeyReady: Boolean(getConfig().encodingAesKey),
       appSecretReady: Boolean(getConfig().appSecret),
+      fixedIpProxyConfigured: hasWecomProxyConfig(),
+      fixedIpProxyBaseUrlReady: Boolean(process.env.WECOM_PROXY_BASE_URL || process.env.WECOM_PROXY_URL),
+      fixedIpProxySecretReady: Boolean(process.env.WECOM_PROXY_SECRET),
       inboxCount: Array.isArray(snapshot.state.wecomInbox) ? snapshot.state.wecomInbox.length : 0,
       storageMode: snapshot.meta.storageMode,
       persistence: snapshot.meta.persistence,
