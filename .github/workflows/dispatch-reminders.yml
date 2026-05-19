@@ -1,0 +1,20 @@
+name: Dispatch WorkPad reminders
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    if: ${{ secrets.CRON_SECRET != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch due reminders
+        run: |
+          curl --fail --show-error --silent \
+            --request GET \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "https://workpad.tbxprint.com/api/cron/dispatch-reminders"
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

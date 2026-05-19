@@ -74,7 +74,7 @@ vercel dev --listen 4173
 5. 自助绑定入口：在企业微信 `WorkPad` 应用聊天框里发送 `绑定 姓名`
 6. 后台人员录入显示企微绑定状态：默认是 `待绑定`；`已绑定` 表示人员已通过企业微信绑定，或后台已明确填写企业微信 `UserId`，不是微信昵称。
 7. 固定 IP 代理：`services/wecom-fixed-ip-proxy` 可部署到阿里云 ECS / EIP，用来稳定处理企业微信可信 IP 校验。
-8. 到点提醒派发：`/api/cron/dispatch-reminders` 由 Vercel Cron 每分钟扫描待提醒项目，并通过企业微信主动推送。
+8. 到点提醒派发：`/api/cron/dispatch-reminders` 支持由 GitHub Actions 或外部定时器调用，扫描待提醒项目并通过企业微信主动推送。
 
 ## 大模型接口
 
