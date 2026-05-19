@@ -53,17 +53,7 @@ function pushInbox(state, payload) {
 }
 
 function shouldStoreIncomingMessage(message) {
-  return !(message.MsgType === "event" && message.Event === "LOCATION");
-}
-
-function hasRecentEnterAgentEvent(state, sender) {
-  const recentWindowMs = 10 * 60 * 1000;
-  const now = nowDate().getTime();
-  return (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).some((item) => {
-    if (item.fromUserId !== sender || item.msgType !== "event" || item.event !== "enter_agent") return false;
-    const createdAt = new Date(String(item.createdAt || "").replace(" ", "T")).getTime();
-    return Number.isFinite(createdAt) && now - createdAt <= recentWindowMs;
-  });
+  return message.MsgType !== "event";
 }
 
 function projectDigest(project) {
@@ -255,7 +245,6 @@ async function handleIncomingMessage(message) {
   const state = snapshot.state;
   const actor = actorNameFromMessage(state, message.FromUserName);
   const content = String(message.Content || "").trim();
-  const alreadyEnteredRecently = hasRecentEnterAgentEvent(state, message.FromUserName);
 
   if (shouldStoreIncomingMessage(message)) {
     pushInbox(state, {
@@ -268,14 +257,8 @@ async function handleIncomingMessage(message) {
     });
   }
 
-  if (message.MsgType === "event" && message.Event === "enter_agent") {
-    const saved = await writeStoredState(state);
-    return { replyText: alreadyEnteredRecently ? "" : helpText(), snapshot: saved };
-  }
-
   if (message.MsgType === "event") {
-    const saved = await writeStoredState(state);
-    return { replyText: "", snapshot: saved };
+    return { replyText: "", snapshot };
   }
 
   if (message.MsgType !== "text") {
@@ -285,9 +268,14 @@ async function handleIncomingMessage(message) {
 
   const command = parseCommand(content);
 
-  if (command.type === "help" || command.type === "unknown" || command.type === "empty") {
+  if (command.type === "help") {
     const saved = await writeStoredState(state);
     return { replyText: helpText(), snapshot: saved };
+  }
+
+  if (command.type === "unknown" || command.type === "empty") {
+    const saved = await writeStoredState(state);
+    return { replyText: "没有识别到可执行指令。你可以发送“帮助”查看可用命令。", snapshot: saved };
   }
 
   if (command.type === "my-reminders") {
