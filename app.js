@@ -962,8 +962,8 @@ function nodeOperatorText(node = {}) {
 function nodeTimelineStatusClass(node = {}) {
   const status = textValue(node.status);
   if (status === "已完成" || node.completedAt) return "is-completed";
-  if (["进行中", "已阻塞"].includes(status)) return "is-current";
-  return "is-upcoming";
+  if (["进行中", "已阻塞"].includes(status)) return "is-unfinished is-current";
+  return "is-unfinished";
 }
 
 function normalizeProjectNode(node, context = {}, index = 0) {
@@ -2785,26 +2785,46 @@ function renderNodeTimelineHtml(project) {
         </div>
       </div>
       <div class="node-timeline-wrapper" aria-label="节点横向时间轴">
-        <div class="node-timeline-track">
+        <div class="node-timeline-legend">
+          <span><i class="legend-dot is-completed"></i>已完成</span>
+          <span><i class="legend-dot is-unfinished"></i>未完成</span>
+          <span class="mini-text">鼠标放到节点上查看详情</span>
+        </div>
+        <div class="node-timeline-track" style="--node-count: ${Math.max(nodes.length, 1)};">
           ${nodes.map((node, index) => {
             const status = textValue(node.status || "未开始") || "未开始";
             const startedText = nodeTimeText(node.startedAtTime || node.startedAt, node.startedAt || "未开始");
             const completedText = nodeTimeText(node.completedAtTime || node.completedAt, node.completedAt || (status === "未开始" ? "-" : "进行中"));
             const operator = nodeOperatorText(node) || "-";
+            const tipId = `node-tip-${project.id}-${index}`;
+            const stateLabel = nodeTimelineStatusClass(node).includes("is-completed") ? "已完成" : "未完成";
+            const detailTitle = [
+              `${index + 1}. ${node.name}`,
+              `状态：${status}`,
+              `进入：${startedText}`,
+              `完成：${completedText}`,
+              `距上节点：${nodeGapText(nodes, index)}`,
+              `本节点停留：${nodeDurationText(node)}`,
+              `负责人：${node.owner || "未分配"}`,
+              `操作人：${operator}`,
+              `备注：${node.note || "-"}`,
+            ].join("\n");
             return `
               <article class="node-timeline-card ${nodeTimelineStatusClass(node)}">
-                <div class="node-timeline-marker">
+                <button type="button" class="node-timeline-trigger" aria-describedby="${escapeHtml(tipId)}" title="${escapeHtml(detailTitle)}">
                   <span class="node-timeline-index">${index + 1}</span>
-                  <span class="node-timeline-status">${escapeHtml(status)}</span>
-                </div>
-                <div class="node-timeline-card-body">
+                  <span class="node-timeline-name">${escapeHtml(node.name)}</span>
+                  <span class="node-timeline-status">${escapeHtml(stateLabel)}</span>
+                </button>
+                <div class="node-timeline-card-body" id="${escapeHtml(tipId)}" role="tooltip">
                   <div class="node-timeline-top">
                     <strong>${escapeHtml(node.name)}</strong>
-                    <span>${escapeHtml(nodeGapText(nodes, index))}</span>
+                    <span>${escapeHtml(status)}</span>
                   </div>
                   <div class="node-timeline-dates">
                     <span>进入：${escapeHtml(startedText)}</span>
                     <span>完成：${escapeHtml(completedText)}</span>
+                    <span>距上节点：${escapeHtml(nodeGapText(nodes, index))}</span>
                   </div>
                   <div class="node-timeline-stay">
                     <span>本节点停留</span>
