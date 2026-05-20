@@ -416,6 +416,17 @@ body::before {
   margin-top: 16px;
 }
 
+.admin-stage .admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(31, 36, 48, 0.08);
+  background: rgba(255, 255, 255, 0.54);
+}
+
 .admin-nav-button {
   width: 100%;
   padding: 16px;
@@ -424,6 +435,13 @@ body::before {
   background: rgba(255, 255, 255, 0.74);
   cursor: pointer;
   transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.admin-stage .admin-nav-button {
+  flex: 1 1 190px;
+  width: auto;
+  min-height: 76px;
+  box-shadow: none;
 }
 
 .admin-nav-button.is-active {
@@ -523,6 +541,15 @@ body::before {
   margin-top: 18px;
   padding: 24px;
   border-radius: var(--radius-xl);
+}
+
+.admin-stage {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-summary-strip {
+  display: none;
 }
 
 #personBoardSection {
