@@ -1,7 +1,7 @@
 const { readStoredState, writeStoredState } = require("./store");
 const { getConfig } = require("./wecom-crypto");
 const { createAudioTranscription, createChatCompletion } = require("./ai-client");
-const { appendProjectReminder, normalizeProjectReminders } = require("./reminders");
+const { appendProjectReminder, appendPublicReminder, normalizeProjectReminders, normalizePublicReminders } = require("./reminders");
 
 function nowDate() {
   return new Date();
@@ -145,7 +145,7 @@ async function requestWecomProxyMedia(message) {
 }
 
 function projectDigest(project) {
-  const reminders = normalizeProjectReminders(project).filter((item) => item.status !== "sent").slice(0, 6);
+  const reminders = normalizeProjectReminders(project).filter((item) => !["completed", "cancelled"].includes(item.status)).slice(0, 6);
   return [
     `《${project.title}》`,
     `编号：${project.code}`,
@@ -166,6 +166,7 @@ function helpText() {
     "4. 提醒 陈敏 BK-2026-005 2026-05-20 15:30 催合同回签",
     "5. 我的提醒",
     "6. 绑定 贾涛",
+    "7. 公共提醒：提醒 张莹 明天 9:30 参加选题会",
     "也可以直接发语音或自然语言：明天下午三点提醒张莹跟进 BK-2026-005 合同回签",
   ].join("\n");
 }
@@ -195,6 +196,15 @@ function buildReminderText(project, reminder) {
   ].filter(Boolean).join("\n");
 }
 
+function buildPublicReminderText(reminder) {
+  return [
+    "已记录新的公共提醒：",
+    `提醒人：${reminder.person}`,
+    `提醒时间：${reminder.date}`,
+    reminder.note ? `说明：${reminder.note}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 function buildReminderRecordNotice(actor, member, reminder) {
   return `${actor} 已通过企业微信记录提醒：${member.name} · ${reminder.date} · ${reminder.note}`;
 }
@@ -202,12 +212,19 @@ function buildReminderRecordNotice(actor, member, reminder) {
 function myRemindersText(state, sender) {
   const member = findMember(state, sender) || findMember(state, actorNameFromMessage(state, sender));
   if (!member) return "当前企微账号还没有在 WorkPad 人员表里建立映射，请先在后台补充企微账号 UserId。";
-  const list = state.projects.flatMap((project) => normalizeProjectReminders(project)
-    .filter((reminder) => reminder.person === member.name && reminder.status !== "sent" && project.status !== "已完成")
+  const projectList = state.projects.flatMap((project) => normalizeProjectReminders(project)
+    .filter((reminder) => reminder.person === member.name && !["completed", "cancelled"].includes(reminder.status) && project.status !== "已完成")
     .map((reminder) => ({ project, reminder })))
     .slice(0, 8);
-  if (!list.length) return "你当前没有待处理提醒。";
-  return ["你当前的待提醒项目：", ...list.map(({ project, reminder }) => `- ${project.code}《${project.title}》 ${project.status}/${project.currentNode}，提醒时间 ${reminder.date}，事项：${reminder.note}`)].join("\n");
+  const publicList = normalizePublicReminders(state.publicReminders)
+    .filter((reminder) => reminder.person === member.name && !["completed", "cancelled"].includes(reminder.status))
+    .slice(0, 8);
+  if (!projectList.length && !publicList.length) return "你当前没有待处理提醒。";
+  return [
+    "你当前的待处理提醒：",
+    ...projectList.map(({ project, reminder }) => `- ${project.code}《${project.title}》 ${project.status}/${project.currentNode}，提醒时间 ${reminder.date}，事项：${reminder.note}`),
+    ...publicList.map((reminder) => `- 公共提醒，提醒时间 ${reminder.date}，事项：${reminder.note}`),
+  ].join("\n");
 }
 
 function bindMemberText(state, sender, memberKeyword) {
@@ -298,7 +315,7 @@ function parseReminderSchedule(rawText) {
 }
 
 function reminderFormatTip() {
-  return "提醒需要具体到几点几分。\n格式：提醒 陈敏 BK-2026-005 2026-05-20 15:30 催合同回签\n也可以写：提醒 陈敏 BK-2026-005 明天 9:30 催合同回签";
+  return "提醒需要具体到几点几分。\n订单提醒格式：提醒 陈敏 BK-2026-005 2026-05-20 15:30 催合同回签\n公共提醒格式：提醒 张莹 明天 9:30 参加选题会";
 }
 
 function parseCommand(content) {
@@ -324,6 +341,15 @@ function parseCommand(content) {
 
   const remindMatch = text.match(/^提醒\s+(\S+)\s+(\S+)\s+([\s\S]+)$/);
   if (remindMatch) {
+    const maybeDate = dateFromToken(remindMatch[2]) || timeFromToken(remindMatch[2]);
+    if (maybeDate) {
+      const schedule = parseReminderSchedule(`${remindMatch[2]} ${remindMatch[3]}`);
+      return {
+        type: "public-remind",
+        memberKeyword: remindMatch[1].trim(),
+        ...schedule,
+      };
+    }
     const schedule = parseReminderSchedule(remindMatch[3]);
     return {
       type: "remind",
@@ -376,7 +402,7 @@ function memberCandidates(state) {
 
 function normalizeAiCommand(payload) {
   const type = String(payload?.type || "unknown").trim();
-  if (!["help", "my-reminders", "view", "record", "remind", "bind", "unknown"].includes(type)) {
+  if (!["help", "my-reminders", "view", "record", "remind", "public-remind", "bind", "unknown"].includes(type)) {
     return { type: "unknown", raw: JSON.stringify(payload || {}) };
   }
   const command = {
@@ -391,6 +417,11 @@ function normalizeAiCommand(payload) {
   if (command.type === "remind") {
     if (!command.memberKeyword) return { type: "unknown", reason: "缺少提醒人" };
     if (!command.projectKeyword) return { type: "unknown", reason: "缺少项目" };
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(command.reminderDate)) return { type: "unknown", reason: "缺少精确到分钟的提醒时间" };
+    if (!command.note) return { type: "unknown", reason: "缺少提醒内容" };
+  }
+  if (command.type === "public-remind") {
+    if (!command.memberKeyword) return { type: "unknown", reason: "缺少提醒人" };
     if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(command.reminderDate)) return { type: "unknown", reason: "缺少精确到分钟的提醒时间" };
     if (!command.note) return { type: "unknown", reason: "缺少提醒内容" };
   }
@@ -412,14 +443,16 @@ async function parseNaturalCommand(content, state, actor) {
         content: [
           "你是 WorkPad 订单大看板的企业微信指令解析器，只输出 JSON，不要输出 Markdown。",
           "目标：把员工的自然语言、语音转写文本解析为可执行命令。",
-          "可用 type：help、my-reminders、view、record、remind、bind、unknown。",
-          "remind 必须输出 memberKeyword、projectKeyword、reminderDate、note。reminderDate 必须是 YYYY-MM-DD HH:mm，必须精确到分钟。",
+          "可用 type：help、my-reminders、view、record、remind、public-remind、bind、unknown。",
+          "remind 是订单提醒，必须输出 memberKeyword、projectKeyword、reminderDate、note。reminderDate 必须是 YYYY-MM-DD HH:mm，必须精确到分钟。",
+          "public-remind 是公共提醒，不绑定订单；必须输出 memberKeyword、reminderDate、note，不要输出 projectKeyword。",
           "如果用户说“提醒我”，memberKeyword 用当前说话人姓名。",
           "record 必须输出 projectKeyword 和 note。",
           "view 必须输出 keyword 或 projectKeyword。",
           "bind 必须输出 memberKeyword。",
           "项目和人员只能从候选列表里选，项目优先输出项目编号。",
-          "如果没有明确时间、项目或人员，不要猜，输出 type=unknown 并写 reason。",
+          "如果用户要提醒某人做事但没有明确订单、项目编号或书名，优先输出 type=public-remind。",
+          "如果没有明确时间或人员，不要猜，输出 type=unknown 并写 reason。",
         ].join("\n"),
       },
       {
@@ -433,7 +466,8 @@ async function parseNaturalCommand(content, state, actor) {
           projectCandidates(state),
           "用户输入：",
           text,
-          "请输出 JSON，示例：{\"type\":\"remind\",\"memberKeyword\":\"张莹\",\"projectKeyword\":\"BK-2026-005\",\"reminderDate\":\"2026-05-20 15:30\",\"note\":\"催合同回签\"}",
+          "请输出 JSON，订单提醒示例：{\"type\":\"remind\",\"memberKeyword\":\"张莹\",\"projectKeyword\":\"BK-2026-005\",\"reminderDate\":\"2026-05-20 15:30\",\"note\":\"催合同回签\"}",
+          "公共提醒示例：{\"type\":\"public-remind\",\"memberKeyword\":\"张莹\",\"reminderDate\":\"2026-05-20 09:30\",\"note\":\"参加选题会\"}",
         ].join("\n"),
       },
     ],
@@ -618,6 +652,29 @@ async function handleIncomingMessage(message) {
     }
     updateProjectFollowUp(project, actor, command.note, command.note, "企业微信记录");
     return saveWithReply(`您发布的记录命令成功。\n已记录到《${project.title}》。\n当前下一步：${project.nextAction}`, { changedProject: project });
+  }
+
+  if (command.type === "public-remind") {
+    if (command.error) {
+      const missingNote = command.error === "missing-note" ? "\n另外需要补充提醒内容，比如“参加选题会”。" : "";
+      return saveWithReply(`您发布的公共提醒命令不成功。\n原因：提醒格式不完整，需要包含提醒人、精确到分钟的时间和提醒内容。\n${reminderFormatTip()}${missingNote}`);
+    }
+    const member = findMember(state, command.memberKeyword);
+    if (!member) {
+      return saveWithReply(`您发布的公共提醒命令不成功。\n原因：没有找到人员「${command.memberKeyword}」，请先确认后台人员名称一致。`);
+    }
+    const reminder = appendPublicReminder(state, {
+      person: member.name,
+      date: command.reminderDate,
+      note: command.note,
+      actor,
+      source: "企业微信",
+      recordAt: dateTimeString(nowDate()),
+    });
+    const sourceTip = source === "ai" ? "已按自然语言解析并写入公共提醒。" : "";
+    const transcriptTip = transcript?.text ? `语音识别：${transcript.text}` : "";
+    const replyText = ["您发布的公共提醒命令成功。", sourceTip, transcriptTip, buildPublicReminderText(reminder)].filter(Boolean).join("\n\n");
+    return saveWithReply(replyText, { targetMember: member });
   }
 
   if (command.type === "remind") {

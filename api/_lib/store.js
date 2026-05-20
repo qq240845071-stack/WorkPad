@@ -11,7 +11,7 @@ const {
   DEFAULT_BUSINESS_LINE_ID,
   ROLE_PERMISSION_ROWS,
 } = require("./demo-state");
-const { normalizeProjectReminders, syncProjectReminderFields } = require("./reminders");
+const { normalizeProjectReminders, normalizePublicReminders, syncProjectReminderFields } = require("./reminders");
 
 const BLOB_PATHNAME = "workpad/state.json";
 
@@ -209,6 +209,14 @@ function normalizePushLogs(pushLogs) {
       source: String(item.source || "企业微信推送"),
       projectCode: String(item.projectCode || ""),
       projectTitle: String(item.projectTitle || ""),
+      confirmable: item.confirmable === true || item.confirmable === "true",
+      confirmationToken: String(item.confirmationToken || ""),
+      confirmationUrl: String(item.confirmationUrl || ""),
+      completionStatus: String(item.completionStatus || ""),
+      completedAt: String(item.completedAt || ""),
+      completedBy: String(item.completedBy || ""),
+      reminderId: String(item.reminderId || ""),
+      reminderScope: String(item.reminderScope || ""),
     };
   }).slice(0, 300);
 }
@@ -236,8 +244,10 @@ function normalizeState(rawState) {
     workflowConfig,
     businessLines,
     selectedWorkflowLineId: businessLines.some((line) => line.id === state.selectedWorkflowLineId) ? state.selectedWorkflowLineId : businessLines[0]?.id || DEFAULT_BUSINESS_LINE_ID,
+    confirmablePushEnabled: state.confirmablePushEnabled !== false,
     currentUserId: state.currentUserId || seed.currentUserId,
     wecomInbox: Array.isArray(state.wecomInbox) ? state.wecomInbox.slice(0, 200) : [],
+    publicReminders: normalizePublicReminders(state.publicReminders || seed.publicReminders),
     pushLogs: normalizePushLogs(state.pushLogs),
   };
 }

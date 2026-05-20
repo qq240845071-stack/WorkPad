@@ -162,6 +162,7 @@ const ADMIN_TAB_RULES = {
   partners: ["管理合作方"],
   businessLines: ["管理流程节点"],
   workflow: ["管理流程节点"],
+  reminders: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
   pushLogs: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
 };
 
@@ -176,6 +177,8 @@ const state = {
   businessLines: [],
   wecomInbox: [],
   pushLogs: [],
+  publicReminders: [],
+  confirmablePushEnabled: true,
   filters: { search: "", owner: "全部", status: "全部", risk: "全部", update: "全部", reminder: "全部" },
   selectedProjectId: null,
   editingProjectId: null,
@@ -535,6 +538,8 @@ function loadSettings() {
       state.partners = Array.isArray(parsed.partners) ? normalizePartners(parsed.partners) : clone(DEFAULT_PARTNERS);
       state.workflowConfig = Array.isArray(parsed.workflowConfig) && parsed.workflowConfig.length ? normalizeWorkflowNodes(parsed.workflowConfig) : normalizeWorkflowNodes(WORKFLOW_CONFIG);
       state.businessLines = normalizeBusinessLines(parsed.businessLines, state.workflowConfig);
+      state.publicReminders = normalizePublicReminders(parsed.publicReminders);
+      state.confirmablePushEnabled = parsed.confirmablePushEnabled !== false;
       state.selectedWorkflowLineId = state.businessLines.some((line) => line.id === parsed.selectedWorkflowLineId) ? parsed.selectedWorkflowLineId : state.businessLines[0].id;
       state.currentUserId = parsed.currentUserId || TEAM_MEMBERS[0].id;
       return;
@@ -548,6 +553,8 @@ function loadSettings() {
   state.partners = clone(DEFAULT_PARTNERS);
   state.workflowConfig = normalizeWorkflowNodes(WORKFLOW_CONFIG);
   state.businessLines = defaultBusinessLines();
+  state.publicReminders = [];
+  state.confirmablePushEnabled = true;
   state.selectedWorkflowLineId = DEFAULT_BUSINESS_LINE_ID;
 }
 
@@ -562,6 +569,8 @@ function saveSettings() {
       partners: state.partners,
       workflowConfig: state.workflowConfig,
       businessLines: state.businessLines,
+      publicReminders: state.publicReminders,
+      confirmablePushEnabled: state.confirmablePushEnabled,
       selectedWorkflowLineId: state.selectedWorkflowLineId,
       currentUserId: state.currentUserId,
     }),
@@ -584,6 +593,8 @@ function exportStateSnapshot() {
     currentUserId: state.currentUserId,
     wecomInbox: state.wecomInbox,
     pushLogs: state.pushLogs,
+    publicReminders: state.publicReminders,
+    confirmablePushEnabled: state.confirmablePushEnabled,
   };
 }
 
@@ -600,6 +611,8 @@ function applyStateSnapshot(snapshot) {
   state.partners = Array.isArray(snapshot.partners) ? normalizePartners(snapshot.partners, state.projects) : clone(DEFAULT_PARTNERS);
   state.wecomInbox = Array.isArray(snapshot.wecomInbox) ? snapshot.wecomInbox : [];
   state.pushLogs = Array.isArray(snapshot.pushLogs) ? snapshot.pushLogs : [];
+  state.publicReminders = normalizePublicReminders(snapshot.publicReminders);
+  state.confirmablePushEnabled = snapshot.confirmablePushEnabled !== false;
   state.currentUserId = state.teamMembers.some((item) => item.id === snapshot.currentUserId) ? snapshot.currentUserId : state.teamMembers[0].id;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.projects));
   localStorage.setItem(
@@ -612,6 +625,8 @@ function applyStateSnapshot(snapshot) {
       partners: state.partners,
       workflowConfig: state.workflowConfig,
       businessLines: state.businessLines,
+      publicReminders: state.publicReminders,
+      confirmablePushEnabled: state.confirmablePushEnabled,
       selectedWorkflowLineId: state.selectedWorkflowLineId,
       currentUserId: state.currentUserId,
     }),
@@ -874,6 +889,12 @@ function normalizeReminderItem(item, project = {}, index = 0) {
     lastAttemptAt: textValue(source.lastAttemptAt || project.reminderNotificationLastAttemptAt || ""),
     lastError: textValue(source.lastError || project.reminderNotificationLastError || ""),
     attempts: Number(source.attempts ?? source.reminderNotificationAttempts ?? 0) || 0,
+    confirmable: source.confirmable === false || source.confirmable === "false" ? false : true,
+    confirmationToken: textValue(source.confirmationToken || ""),
+    confirmationUrl: textValue(source.confirmationUrl || ""),
+    completedAt: textValue(source.completedAt || ""),
+    completedBy: textValue(source.completedBy || ""),
+    completionNote: textValue(source.completionNote || ""),
   };
 }
 
@@ -946,8 +967,40 @@ function appendProjectReminder(project, input) {
   return reminder;
 }
 
+function normalizePublicReminder(item = {}, index = 0) {
+  return normalizeReminderItem({
+    ...item,
+    id: item.id || reminderUid(`public-${index}`),
+    source: item.source || "公共提醒",
+    actor: item.actor || "WorkPad 管家",
+  }, {}, index);
+}
+
+function normalizePublicReminders(reminders = []) {
+  return (Array.isArray(reminders) ? reminders : [])
+    .map((item, index) => normalizePublicReminder(item, index))
+    .sort((left, right) => String(left.date).localeCompare(String(right.date)));
+}
+
+function activePublicReminders() {
+  return normalizePublicReminders(state.publicReminders).filter((item) => !["completed", "cancelled"].includes(item.status));
+}
+
+function appendPublicReminder(input) {
+  const reminder = normalizePublicReminder({
+    ...(input || {}),
+    id: input?.id || reminderUid("public"),
+    status: input?.status || "pending",
+    pending: input?.pending ?? true,
+    createdAt: input?.createdAt || new Date().toISOString(),
+  });
+  state.publicReminders = [...normalizePublicReminders(state.publicReminders), reminder];
+  return reminder;
+}
+
 function reminderItemStatus(reminder) {
-  if (reminder.status === "sent") return "已推送";
+  if (reminder.status === "completed" || reminder.completedAt) return "已完成";
+  if (reminder.status === "sent") return reminder.confirmable === false ? "已推送" : "已推送待确认";
   if (reminder.status === "failed") return "推送失败";
   if (reminder.status === "cancelled") return "已取消";
   return dateString(reminder.date) === dateString(new Date()) ? "今日提醒" : "待提醒";
@@ -962,6 +1015,20 @@ function todayReminderItems(projects, memberName = "") {
     .filter((reminder) => project.status !== "已完成" && dateString(reminder.date) === dateString(new Date()))
     .filter((reminder) => !memberName || reminder.person === memberName)
     .map((reminder) => ({ project, reminder })));
+}
+
+function todayPublicReminderItems(memberName = "") {
+  return activePublicReminders()
+    .filter((reminder) => dateString(reminder.date) === dateString(new Date()))
+    .filter((reminder) => !memberName || reminder.person === memberName)
+    .map((reminder) => ({ reminder, scope: "public" }));
+}
+
+function todayAllReminderItems(projects = state.projects, memberName = "") {
+  return [
+    ...todayReminderItems(projects, memberName),
+    ...todayPublicReminderItems(memberName),
+  ];
 }
 
 function projectMatchesReminderFilter(project, filter) {
@@ -1379,7 +1446,7 @@ function syncFiltersAndForm() {
 function renderNoticeBar() {
   const user = currentUser();
   const myProjects = state.projects.filter((item) => item.owner === user.name && !["已完成", "已暂停"].includes(item.status)).length;
-  const myReminders = todayReminderItems(state.projects, user.name).length;
+  const myReminders = todayAllReminderItems(state.projects, user.name).length;
   const highRisk = state.projects.filter((item) => getProjectRisk(item).level === "高").length;
   const adminHint = canAccessAdmin(user) ? "可进入后台管理配置" : "当前身份只开放业务看板操作";
   elements.noticeBar.innerHTML = `
@@ -1401,7 +1468,7 @@ function renderSummary(projects) {
     const dueIn = diffDays(parseDate(item.planFinish), new Date());
     return dueIn >= 0 && dueIn <= 7 && item.status !== "已完成";
   }).length;
-  const todayReminders = todayReminderItems(projects).length;
+  const todayReminders = todayReminderItems(projects).length + todayPublicReminderItems().length;
   const cards = [
     ["当前项目总数", String(projects.length), "含在途、暂停和已完成项目", "#a4482f"],
     ["在途项目", String(active), "不含已完成和已暂停", "#23404d"],
@@ -1490,7 +1557,7 @@ function renderPersonBoard(projects) {
   elements.personBoardGrid.innerHTML = members.map((member) => {
     const myProjects = projects.filter((item) => item.owner === member.name && !["已完成"].includes(item.status));
     const highRisk = myProjects.filter((item) => getProjectRisk(item).level === "高").length;
-    const reminders = todayReminderItems(scopedProjects, member.name).length;
+    const reminders = todayReminderItems(scopedProjects, member.name).length + todayPublicReminderItems(member.name).length;
     return `
       <article class="person-card">
         <div class="person-card-top">
@@ -1522,6 +1589,7 @@ function adminCards() {
     ["合作方总数", String(getPartners().length), "项目录入时通过选择进入", "#a4482f"],
     ["业务线", String(businessLineOptions().length), "不同业务线可配置不同流程", "#697443"],
     ["推送记录", String(state.pushLogs.length), "企微提醒和主动消息留痕", "#b67c1f"],
+    ["公共提醒", String(activePublicReminders().length), "不绑定具体订单的提醒事项", "#2f7252"],
   ];
 }
 
@@ -1545,6 +1613,7 @@ function renderAdminNav() {
     ["partners", "合作方管理", "合作方主数据和项目引用"],
     ["businessLines", "业务线管理", "出版、设计、生产等业务分类"],
     ["workflow", "流程节点配置", "按业务线维护节点增删改"],
+    ["reminders", "提醒中心", "订单提醒、公共提醒和确认状态"],
     ["pushLogs", "推送记录", "内容、时间、发起人和发送结果"],
   ];
   const visibleTabs = tabs.filter(([key]) => allowedAdminTabs().includes(key));
@@ -1557,7 +1626,7 @@ function renderAdminNav() {
 
 function buildAiContext() {
   const highRisk = state.projects.filter((project) => getProjectRisk(project).level === "高");
-  const reminders = todayReminderItems(state.projects);
+  const reminders = todayAllReminderItems(state.projects);
   const active = state.projects.filter((project) => !["已完成", "已暂停"].includes(project.status));
   return [
     `当前用户：${currentUser().name} / ${currentUser().role}`,
@@ -1834,6 +1903,111 @@ async function sendAiChatMessage(message) {
   }
 }
 
+function allReminderRows() {
+  const projectRows = state.projects.flatMap((project) => normalizeProjectReminders(project).map((reminder) => ({
+    scope: "project",
+    project,
+    reminder,
+  })));
+  const publicRows = normalizePublicReminders(state.publicReminders).map((reminder) => ({
+    scope: "public",
+    project: null,
+    reminder,
+  }));
+  return [...projectRows, ...publicRows].sort((left, right) => {
+    return parseDate(left.reminder.date).getTime() - parseDate(right.reminder.date).getTime();
+  });
+}
+
+function confirmationStatusText(reminder) {
+  if (reminder.status === "completed" || reminder.completedAt) {
+    const by = reminder.completedBy ? ` · ${reminder.completedBy}` : "";
+    return `已完成${by}`;
+  }
+  if (reminder.confirmable === false) return "无需确认";
+  if (reminder.status === "sent") return "待对方确认";
+  if (reminder.status === "failed") return "推送失败，待重试";
+  return "未推送";
+}
+
+function renderRemindersPanel() {
+  const rows = allReminderRows();
+  const upcomingPublic = activePublicReminders().length;
+  elements.adminContent.innerHTML = `
+    <div class="data-panel-stack">
+      <section class="data-panel">
+        <div class="table-toolbar">
+          <div>
+            <h3>公共提醒</h3>
+            <div class="mini-text">公共提醒不绑定具体订单，适合会议、送货、跨项目协同等事项；到点后同样通过企业微信推送。</div>
+          </div>
+          <div class="toolbar-actions">
+            <label class="switch-line">
+              <input type="checkbox" data-confirmable-push-enabled ${state.confirmablePushEnabled ? "checked" : ""} />
+              <span>可确认推送</span>
+            </label>
+            <span class="chip chip-status">未完成公共提醒 ${upcomingPublic} 条</span>
+          </div>
+        </div>
+        <form id="publicReminderForm" class="workflow-config-toolbar public-reminder-form">
+          <label class="mini-field">
+            <span>提醒人</span>
+            <select name="person" required>
+              ${state.teamMembers.map((member) => `<option value="${escapeHtml(member.name)}">${escapeHtml(member.name)} · ${escapeHtml(member.department)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="mini-field">
+            <span>提醒时间</span>
+            <input type="datetime-local" name="date" value="${escapeHtml(dateTimeInputValue(new Date()))}" required />
+          </label>
+          <label class="mini-field workflow-description-field">
+            <span>提醒内容</span>
+            <input name="note" placeholder="例如：下午选题会准备样书" required />
+          </label>
+          <label class="mini-field compact-checkbox">
+            <span>确认</span>
+            <label><input type="checkbox" name="confirmable" checked /> 推送后需要对方确认完成</label>
+          </label>
+          <button type="submit" class="button button-primary">新增公共提醒</button>
+        </form>
+      </section>
+    </div>
+    ${rows.length ? `
+      <div class="table-wrapper push-log-wrapper">
+        <table>
+          <thead><tr><th>类型</th><th>项目 / 范围</th><th>提醒人</th><th>提醒时间</th><th>内容</th><th>状态</th><th>确认状态</th><th>来源 / 发起人</th><th>操作</th></tr></thead>
+          <tbody>
+            ${rows.map(({ scope, project, reminder }) => {
+              const isCompleted = reminder.status === "completed" || reminder.completedAt;
+              const scopeText = scope === "project" ? "订单提醒" : "公共提醒";
+              const projectText = project ? `${project.code} · ${project.title}` : "公共事项";
+              return `
+                <tr>
+                  <td><span class="permission-badge">${escapeHtml(scopeText)}</span></td>
+                  <td>${escapeHtml(projectText)}</td>
+                  <td>${escapeHtml(reminder.person)}</td>
+                  <td>${escapeHtml(reminderTimeText(reminder.date))}</td>
+                  <td class="push-content-cell">${escapeHtml(reminder.note)}</td>
+                  <td><span class="${riskChip(isCompleted ? "低" : reminder.status === "failed" ? "高" : "中")}">${escapeHtml(reminderItemStatus(reminder))}</span></td>
+                  <td>
+                    ${escapeHtml(confirmationStatusText(reminder))}
+                    ${reminder.completedAt ? `<div class="mini-text">${escapeHtml(formatPushLogTime(reminder.completedAt))}</div>` : ""}
+                  </td>
+                  <td>${escapeHtml([reminder.source, reminder.actor].filter(Boolean).join(" / ") || "手动提醒")}</td>
+                  <td>
+                    <button type="button" class="table-action" data-admin-action="complete-reminder" data-reminder-scope="${escapeHtml(scope)}" data-reminder-id="${escapeHtml(reminder.id)}" data-project-id="${escapeHtml(project?.id || "")}" ${isCompleted ? "disabled" : ""}>标记完成</button>
+                  </td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>` : `
+      <section class="settings-panel">
+        <h3>还没有提醒任务</h3>
+        <div class="mini-text">可以先新增一条公共提醒，或者在项目里设置订单提醒。</div>
+      </section>`}`;
+}
+
 function renderPushLogsPanel() {
   const pushLogs = (Array.isArray(state.pushLogs) ? state.pushLogs : []).slice().sort((left, right) => {
     return parseDate(right.pushedAt).getTime() - parseDate(left.pushedAt).getTime();
@@ -1853,7 +2027,7 @@ function renderPushLogsPanel() {
     ${pushLogs.length ? `
       <div class="table-wrapper push-log-wrapper">
         <table>
-          <thead><tr><th>推送时间</th><th>发起人</th><th>接收人</th><th>推送内容</th><th>结果</th><th>来源/项目</th><th>失败原因</th></tr></thead>
+          <thead><tr><th>推送时间</th><th>发起人</th><th>接收人</th><th>推送内容</th><th>结果</th><th>确认状态</th><th>来源/项目</th><th>失败原因</th></tr></thead>
           <tbody>
             ${pushLogs.map((log) => {
               const projectText = [log.projectCode, log.projectTitle].filter(Boolean).join(" · ");
@@ -1868,6 +2042,11 @@ function renderPushLogsPanel() {
                   </td>
                   <td class="push-content-cell">${formatMessageText(log.content || "")}</td>
                   <td><span class="chip ${log.success ? "chip-risk-low" : "chip-risk-high"}">${escapeHtml(log.status || (log.success ? "成功" : "失败"))}</span></td>
+                  <td>
+                    ${escapeHtml(log.completionStatus || (log.confirmable ? "待确认" : "-"))}
+                    ${log.completedAt ? `<div class="mini-text">${escapeHtml(formatPushLogTime(log.completedAt))}</div>` : ""}
+                    ${log.completedBy ? `<div class="mini-text">${escapeHtml(log.completedBy)}</div>` : ""}
+                  </td>
                   <td>${escapeHtml(sourceText)}</td>
                   <td class="push-error-cell">${escapeHtml(log.error || "-")}</td>
                 </tr>`;
@@ -1904,6 +2083,7 @@ function renderAdminContent() {
     partners: ["合作方管理", `当前已整理 ${getPartners().length} 个合作方，项目录入时已改成通过选择进入。`],
     businessLines: ["业务线管理", `当前共 ${businessLineOptions().length} 条业务线，可分别维护流程名称和说明。`],
     workflow: ["流程节点配置", "可以按业务线增删流程节点、定义节点名称、负责人角色、提醒角色和标准周期。"],
+    reminders: ["提醒中心", `当前共有 ${activePublicReminders().length} 条未完成公共提醒，订单提醒和公共提醒都可在这里看确认状态。`],
     pushLogs: ["信息推送记录", `当前共 ${state.pushLogs.length} 条推送记录，包含成功、失败和失败原因。`],
   };
   elements.adminTitle.textContent = titles[state.adminTab][0];
@@ -1922,9 +2102,10 @@ function renderAdminContent() {
               <span class="chip chip-status">角色管理</span>
               <span class="chip chip-status">权限矩阵</span>
               <span class="chip chip-status">合作方管理</span>
-              <span class="chip chip-status">业务线管理</span>
-              <span class="chip chip-status">流程节点配置</span>
-              <span class="chip chip-status">信息推送记录</span>
+          <span class="chip chip-status">业务线管理</span>
+          <span class="chip chip-status">流程节点配置</span>
+          <span class="chip chip-status">提醒中心</span>
+          <span class="chip chip-status">信息推送记录</span>
           </div>
         </section>
         <section class="settings-panel">
@@ -1937,6 +2118,11 @@ function renderAdminContent() {
 
   if (state.adminTab === "ai") {
     renderAiPanel();
+    return;
+  }
+
+  if (state.adminTab === "reminders") {
+    renderRemindersPanel();
     return;
   }
 
@@ -1973,7 +2159,7 @@ function renderAdminContent() {
                   <td>${wecomBindingBadge(member)}</td>
                   <td><span class="binding-badge ${member.passwordReady ? "is-bound" : "is-unbound"}">${member.passwordReady ? "已设置" : "待重置"}</span></td>
                   <td>${state.projects.filter((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status)).length}</td>
-                  <td>${todayReminderItems(state.projects, member.name).length}</td>
+                  <td>${todayAllReminderItems(state.projects, member.name).length}</td>
                   <td>
                     <div class="table-action-group">
                       <button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>编辑</button>
@@ -2661,6 +2847,79 @@ async function resetMemberPassword(memberId) {
   }
 }
 
+async function savePublicReminderFromForm(form) {
+  const formData = new FormData(form);
+  const person = String(formData.get("person") || "").trim();
+  const date = normalizeReminderDateValue(String(formData.get("date") || "").trim());
+  const note = String(formData.get("note") || "").trim();
+  if (!person || !date || !note) {
+    window.alert("公共提醒需要填写提醒人、提醒时间和提醒内容。");
+    return;
+  }
+  appendPublicReminder({
+    person,
+    date,
+    note,
+    actor: currentUser().name,
+    source: "后台公共提醒",
+    recordAt: dateTimeString(new Date()),
+    confirmable: formData.get("confirmable") === "on",
+  });
+  saveSettings();
+  await flushRemoteSync();
+  form.reset();
+  render();
+}
+
+async function completeReminderFromAdmin(scope, reminderId, projectId) {
+  const completedAt = new Date().toISOString();
+  const completedBy = currentUser().name || "后台管理员";
+  let reminder = null;
+  let project = null;
+
+  if (scope === "project") {
+    project = state.projects.find((item) => item.id === projectId);
+    if (!project) return;
+    project.reminders = normalizeProjectReminders(project);
+    reminder = project.reminders.find((item) => item.id === reminderId);
+    if (!reminder) return;
+    reminder.status = "completed";
+    reminder.pending = false;
+    reminder.completedAt = completedAt;
+    reminder.completedBy = completedBy;
+    project.logs = [
+      { time: dateTimeString(new Date()), actor: completedBy, action: "提醒完成确认", detail: `${reminder.person}：${reminder.note}` },
+      ...(Array.isArray(project.logs) ? project.logs : []),
+    ].slice(0, 100);
+    syncProjectReminderFields(project);
+    saveProjects();
+  } else {
+    state.publicReminders = normalizePublicReminders(state.publicReminders);
+    reminder = state.publicReminders.find((item) => item.id === reminderId);
+    if (!reminder) return;
+    reminder.status = "completed";
+    reminder.pending = false;
+    reminder.completedAt = completedAt;
+    reminder.completedBy = completedBy;
+  }
+
+  state.pushLogs = (Array.isArray(state.pushLogs) ? state.pushLogs : []).map((log) => {
+    const sameToken = reminder.confirmationToken && log.confirmationToken === reminder.confirmationToken;
+    const sameReminder = log.reminderId === reminder.id && log.reminderScope === scope;
+    if (!sameToken && !sameReminder) return log;
+    return {
+      ...log,
+      completionStatus: "已完成",
+      completedAt,
+      completedBy,
+    };
+  });
+
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
 async function deleteDepartment(name) {
   if (!hasPermission("管理人员")) return;
   if (name === "未分配部门") {
@@ -3027,10 +3286,18 @@ function attachEvents() {
       if (button.dataset.adminAction === "delete-workflow-node") void deleteWorkflowNode(button.dataset.workflowNodeId);
       if (button.dataset.adminAction === "move-workflow-node-up") void moveWorkflowNode(button.dataset.workflowNodeId, "up");
       if (button.dataset.adminAction === "move-workflow-node-down") void moveWorkflowNode(button.dataset.workflowNodeId, "down");
+      if (button.dataset.adminAction === "complete-reminder") void completeReminderFromAdmin(button.dataset.reminderScope, button.dataset.reminderId, button.dataset.projectId);
     });
 
   elements.adminContent.addEventListener("change", (event) => {
     const target = event.target;
+    if (target.dataset.confirmablePushEnabled !== undefined) {
+      state.confirmablePushEnabled = target.checked;
+      saveSettings();
+      void flushRemoteSync();
+      render();
+      return;
+    }
     if (target.dataset.permissionIndex) {
       if (!hasPermission("管理权限")) return;
       const row = state.permissionRows[Number(target.dataset.permissionIndex)];
@@ -3098,6 +3365,11 @@ function attachEvents() {
     if (event.target.id === "aiVisionForm") {
       event.preventDefault();
       void recognizeQualityImage(event.target);
+      return;
+    }
+    if (event.target.id === "publicReminderForm") {
+      event.preventDefault();
+      void savePublicReminderFromForm(event.target);
     }
   });
 

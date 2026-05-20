@@ -572,6 +572,37 @@ body::before {
   margin-top: 18px;
 }
 
+.public-reminder-form {
+  grid-template-columns: minmax(160px, 0.8fr) minmax(190px, 0.9fr) minmax(260px, 1.4fr) minmax(190px, 0.9fr) auto;
+  align-items: end;
+}
+
+.compact-checkbox label {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.compact-checkbox input {
+  width: auto;
+}
+
+.switch-line {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.switch-line input {
+  width: 18px;
+  height: 18px;
+}
+
 .filter-panel {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));

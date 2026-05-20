@@ -291,8 +291,10 @@ function createDefaultState() {
     workflowConfig: clone(WORKFLOW_CONFIG),
     businessLines: clone(DEFAULT_BUSINESS_LINES),
     selectedWorkflowLineId: DEFAULT_BUSINESS_LINE_ID,
+    confirmablePushEnabled: true,
     currentUserId: TEAM_MEMBERS[0].id,
     wecomInbox: [],
+    publicReminders: [],
     pushLogs: [],
   };
 }

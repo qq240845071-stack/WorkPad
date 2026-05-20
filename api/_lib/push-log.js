@@ -17,6 +17,7 @@ function memberNameByUserId(state, userId) {
 function appendPushLog(state, payload) {
   const success = payload.success === true || payload.success === "true";
   const receiverUserId = cleanText(payload.receiverUserId || payload.toUser);
+  const confirmable = payload.confirmable === true || payload.confirmable === "true";
   const log = {
     id: cleanText(payload.id, `push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     content: cleanText(payload.content, "未填写推送内容"),
@@ -30,6 +31,14 @@ function appendPushLog(state, payload) {
     source: cleanText(payload.source, "企业微信推送"),
     projectCode: cleanText(payload.projectCode),
     projectTitle: cleanText(payload.projectTitle),
+    confirmable,
+    confirmationToken: cleanText(payload.confirmationToken),
+    confirmationUrl: cleanText(payload.confirmationUrl),
+    completionStatus: cleanText(payload.completionStatus, confirmable ? "待确认" : ""),
+    completedAt: cleanText(payload.completedAt),
+    completedBy: cleanText(payload.completedBy),
+    reminderId: cleanText(payload.reminderId),
+    reminderScope: cleanText(payload.reminderScope),
   };
   state.pushLogs = [log, ...(Array.isArray(state.pushLogs) ? state.pushLogs : [])].slice(0, MAX_PUSH_LOGS);
   return log;

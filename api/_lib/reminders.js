@@ -21,6 +21,16 @@ function reminderId(projectId = "project") {
   return `reminder-${projectId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function confirmationToken(prefix = "reminder") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function booleanValue(value, fallback = true) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (value === false || value === "false" || value === "否") return false;
+  return Boolean(value);
+}
+
 function normalizeReminderItem(item, project, index = 0) {
   const source = item || {};
   const person = textValue(source.person || source.reminderPerson || source.memberName || project.reminderPerson || project.owner || "未分配");
@@ -43,6 +53,12 @@ function normalizeReminderItem(item, project, index = 0) {
     lastAttemptAt: textValue(source.lastAttemptAt || project.reminderNotificationLastAttemptAt || ""),
     lastError: textValue(source.lastError || project.reminderNotificationLastError || ""),
     attempts: Number(source.attempts ?? source.reminderNotificationAttempts ?? 0) || 0,
+    confirmable: booleanValue(source.confirmable, true),
+    confirmationToken: textValue(source.confirmationToken || source.confirmToken || ""),
+    confirmationUrl: textValue(source.confirmationUrl || ""),
+    completedAt: textValue(source.completedAt || ""),
+    completedBy: textValue(source.completedBy || ""),
+    completionNote: textValue(source.completionNote || ""),
   };
 }
 
@@ -118,6 +134,92 @@ function appendProjectReminder(project, input) {
   return reminder;
 }
 
+function normalizePublicReminder(item, index = 0) {
+  const source = item || {};
+  return normalizeReminderItem({
+    ...source,
+    id: source.id || reminderId(`public-${index}`),
+    source: source.source || "公共提醒",
+    actor: source.actor || "WorkPad 管家",
+  }, {}, index);
+}
+
+function normalizePublicReminders(reminders) {
+  return (Array.isArray(reminders) ? reminders : [])
+    .map((item, index) => normalizePublicReminder(item, index))
+    .sort((left, right) => String(left.date).localeCompare(String(right.date)));
+}
+
+function appendPublicReminder(state, input) {
+  const source = input || {};
+  const reminder = normalizePublicReminder({
+    ...source,
+    id: source.id || reminderId("public"),
+    status: source.status || "pending",
+    pending: source.pending ?? true,
+    createdAt: source.createdAt || nowIso(),
+    source: source.source || "公共提醒",
+  });
+  state.publicReminders = [...normalizePublicReminders(state.publicReminders), reminder];
+  return reminder;
+}
+
+function publicBaseUrl() {
+  return textValue(process.env.WORKPAD_PUBLIC_BASE_URL || process.env.PUBLIC_BASE_URL || "https://workpad.tbxprint.com").replace(/\/+$/, "");
+}
+
+function ensureReminderConfirmation(reminder, baseUrl = publicBaseUrl()) {
+  if (!reminder || reminder.confirmable === false) return "";
+  reminder.confirmationToken = reminder.confirmationToken || confirmationToken("confirm");
+  reminder.confirmationUrl = reminder.confirmationUrl || `${baseUrl}/api/reminders/confirm?token=${encodeURIComponent(reminder.confirmationToken)}`;
+  return reminder.confirmationUrl;
+}
+
+function markReminderCompleted(reminder, completedBy = "企业微信确认", completedAt = nowIso()) {
+  reminder.status = "completed";
+  reminder.pending = false;
+  reminder.completedAt = completedAt;
+  reminder.completedBy = textValue(completedBy || "企业微信确认");
+  reminder.lastError = "";
+  return reminder;
+}
+
+function completeReminderByToken(state, token, completedBy = "企业微信确认") {
+  const normalizedToken = textValue(token);
+  if (!normalizedToken) return null;
+  const completedAt = nowIso();
+
+  for (const project of Array.isArray(state.projects) ? state.projects : []) {
+    project.reminders = normalizeProjectReminders(project);
+    const reminder = project.reminders.find((item) => item.confirmationToken === normalizedToken);
+    if (!reminder) continue;
+    markReminderCompleted(reminder, completedBy, completedAt);
+    syncProjectReminderFields(project);
+    updatePushLogCompletion(state, normalizedToken, completedBy, completedAt);
+    return { scope: "project", project, reminder };
+  }
+
+  state.publicReminders = normalizePublicReminders(state.publicReminders);
+  const reminder = state.publicReminders.find((item) => item.confirmationToken === normalizedToken);
+  if (reminder) {
+    markReminderCompleted(reminder, completedBy, completedAt);
+    updatePushLogCompletion(state, normalizedToken, completedBy, completedAt);
+    return { scope: "public", reminder };
+  }
+
+  return null;
+}
+
+function updatePushLogCompletion(state, token, completedBy, completedAt) {
+  if (!Array.isArray(state.pushLogs)) return;
+  state.pushLogs.forEach((log) => {
+    if (log.confirmationToken !== token) return;
+    log.completionStatus = "已完成";
+    log.completedAt = completedAt;
+    log.completedBy = completedBy;
+  });
+}
+
 function parseChinaReminderDate(value) {
   const match = textValue(value).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})$/);
   if (!match) return null;
@@ -128,7 +230,7 @@ function parseChinaReminderDate(value) {
 function shouldDispatchReminder(project, reminder, now) {
   if (!project || project.status === "已完成") return false;
   if (!reminder.pending) return false;
-  if (reminder.status === "sent") return false;
+  if (reminder.status === "sent" || reminder.status === "completed") return false;
   const dueAt = parseChinaReminderDate(reminder.date);
   if (!dueAt || dueAt.getTime() > now.getTime()) return false;
   const lastAttempt = reminder.lastAttemptAt ? new Date(reminder.lastAttemptAt) : null;
@@ -138,7 +240,11 @@ function shouldDispatchReminder(project, reminder, now) {
 
 module.exports = {
   appendProjectReminder,
+  appendPublicReminder,
   activeReminders,
+  completeReminderByToken,
+  ensureReminderConfirmation,
+  normalizePublicReminders,
   normalizeProjectReminders,
   parseChinaReminderDate,
   primaryReminder,
