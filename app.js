@@ -959,6 +959,13 @@ function nodeOperatorText(node = {}) {
   return textValue(node.completedBy || node.startedBy || "");
 }
 
+function nodeTimelineStatusClass(node = {}) {
+  const status = textValue(node.status);
+  if (status === "已完成" || node.completedAt) return "is-completed";
+  if (["进行中", "已阻塞"].includes(status)) return "is-current";
+  return "is-upcoming";
+}
+
 function normalizeProjectNode(node, context = {}, index = 0) {
   const source = node || {};
   const planned = normalizeNodeDateValue(source.planned || source.plannedAt || context.planned);
@@ -2777,39 +2784,41 @@ function renderNodeTimelineHtml(project) {
           <p class="mini-text">接稿日期：${escapeHtml(dateString(project.startDate))} · 已进入 ${recordedCount} 个节点 · 已完成 ${completedCount} 个节点</p>
         </div>
       </div>
-      <div class="table-wrapper node-timeline-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>顺序</th>
-              <th>流程节点</th>
-              <th>状态</th>
-              <th>进入时间</th>
-              <th>完成时间</th>
-              <th>距上节点</th>
-              <th>本节点停留</th>
-              <th>负责人</th>
-              <th>操作人</th>
-              <th>备注</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${nodes.map((node, index) => `
-              <tr>
-                <td>${index + 1}</td>
-                <td><strong>${escapeHtml(node.name)}</strong></td>
-                <td><span class="chip chip-status">${escapeHtml(node.status)}</span></td>
-                <td>${escapeHtml(nodeTimeText(node.startedAtTime || node.startedAt, node.startedAt || "未开始"))}</td>
-                <td>${escapeHtml(nodeTimeText(node.completedAtTime || node.completedAt, node.completedAt || (node.status === "未开始" ? "-" : "进行中")))}</td>
-                <td>${escapeHtml(nodeGapText(nodes, index))}</td>
-                <td><span class="node-duration">${escapeHtml(nodeDurationText(node))}</span></td>
-                <td>${escapeHtml(node.owner || "未分配")}</td>
-                <td>${escapeHtml(nodeOperatorText(node) || "-")}</td>
-                <td>${escapeHtml(node.note || "-")}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
+      <div class="node-timeline-wrapper" aria-label="节点横向时间轴">
+        <div class="node-timeline-track">
+          ${nodes.map((node, index) => {
+            const status = textValue(node.status || "未开始") || "未开始";
+            const startedText = nodeTimeText(node.startedAtTime || node.startedAt, node.startedAt || "未开始");
+            const completedText = nodeTimeText(node.completedAtTime || node.completedAt, node.completedAt || (status === "未开始" ? "-" : "进行中"));
+            const operator = nodeOperatorText(node) || "-";
+            return `
+              <article class="node-timeline-card ${nodeTimelineStatusClass(node)}">
+                <div class="node-timeline-marker">
+                  <span class="node-timeline-index">${index + 1}</span>
+                  <span class="node-timeline-status">${escapeHtml(status)}</span>
+                </div>
+                <div class="node-timeline-card-body">
+                  <div class="node-timeline-top">
+                    <strong>${escapeHtml(node.name)}</strong>
+                    <span>${escapeHtml(nodeGapText(nodes, index))}</span>
+                  </div>
+                  <div class="node-timeline-dates">
+                    <span>进入：${escapeHtml(startedText)}</span>
+                    <span>完成：${escapeHtml(completedText)}</span>
+                  </div>
+                  <div class="node-timeline-stay">
+                    <span>本节点停留</span>
+                    <strong>${escapeHtml(nodeDurationText(node))}</strong>
+                  </div>
+                  <div class="node-timeline-people">
+                    <span>负责人：${escapeHtml(node.owner || "未分配")}</span>
+                    <span>操作人：${escapeHtml(operator)}</span>
+                  </div>
+                  <p class="node-timeline-note">备注：${escapeHtml(node.note || "-")}</p>
+                </div>
+              </article>`;
+          }).join("")}
+        </div>
       </div>
     </section>`;
 }
