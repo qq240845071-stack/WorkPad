@@ -1,5 +1,3 @@
-const MAX_PUSH_LOGS = 300;
-
 function cleanText(value, fallback = "") {
   const text = String(value ?? "").trim();
   return text || fallback;
@@ -41,7 +39,7 @@ function appendPushLog(state, payload) {
     reminderId: cleanText(payload.reminderId),
     reminderScope: cleanText(payload.reminderScope),
   };
-  state.pushLogs = [log, ...(Array.isArray(state.pushLogs) ? state.pushLogs : [])].slice(0, MAX_PUSH_LOGS);
+  state.pushLogs = [log, ...(Array.isArray(state.pushLogs) ? state.pushLogs : [])];
   return log;
 }
 

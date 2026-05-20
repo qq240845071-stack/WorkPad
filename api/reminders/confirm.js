@@ -86,6 +86,17 @@ function formPage(token, result, error = "") {
   return page("填写确认说明", body);
 }
 
+function completedPage(result) {
+  const body = `
+    <p>${escapeHtml(reminderContextText(result))}</p>
+    <label>
+      <span>已提交的完成说明</span>
+      <textarea disabled>${escapeHtml(result.reminder.completionNote || "未填写")}</textarea>
+    </label>
+    <p class="hint">您已发送完毕，这条确认记录已锁定，不能重复修改。</p>`;
+  return page("您已发送完毕", body);
+}
+
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
@@ -127,10 +138,7 @@ module.exports = async function handler(req, res) {
       return;
     }
     if (existing.reminder.status === "completed" || existing.reminder.completedAt) {
-      res.status(200).send(messagePage(
-        "这条提醒已经确认完成",
-        `${reminderContextText(existing)}\n完成说明：${existing.reminder.completionNote || "未填写"}\n可以关闭这个页面。`,
-      ));
+      res.status(200).send(completedPage(existing));
       return;
     }
     res.status(200).send(formPage(token, existing));
@@ -154,6 +162,10 @@ module.exports = async function handler(req, res) {
   const existing = findReminderByToken(snapshot.state, token);
   if (!existing) {
     res.status(404).send(messagePage("没有找到这条提醒", "这条确认链接可能已失效，或者对应提醒已经被删除。", "error"));
+    return;
+  }
+  if (existing.reminder.status === "completed" || existing.reminder.completedAt) {
+    res.status(200).send(completedPage(existing));
     return;
   }
   if (!completionNote) {

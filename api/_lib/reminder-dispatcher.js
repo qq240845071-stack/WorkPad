@@ -17,6 +17,7 @@ function buildReminderMessage(project, reminder) {
     `编号：${project.code}`,
     `状态：${project.status} / ${project.currentNode}`,
     `提醒时间：${reminder.date}`,
+    reminder.actor ? `发起人：${reminder.actor}` : "",
     reminder.note ? `事项：${reminder.note}` : "",
   ].filter(Boolean).join("\n");
 }

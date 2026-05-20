@@ -603,6 +603,25 @@ body::before {
   height: 18px;
 }
 
+.reminder-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.reminder-tabs .admin-nav-button {
+  flex: 1 1 140px;
+  min-height: 70px;
+}
+
+.reminder-filter-toolbar {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(320px, 1.4fr) minmax(220px, 1fr);
+  gap: 14px;
+  margin-top: 18px;
+}
+
 .filter-panel {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1399,6 +1418,10 @@ th {
   }
 
   .workflow-config-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .reminder-filter-toolbar {
     grid-template-columns: 1fr;
   }
 }

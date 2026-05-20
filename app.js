@@ -180,6 +180,7 @@ const state = {
   publicReminders: [],
   confirmablePushEnabled: true,
   filters: { search: "", owner: "全部", status: "全部", risk: "全部", update: "全部", reminder: "全部" },
+  reminderFilters: { tab: "all", person: "全部", keyword: "", sort: "timeAsc" },
   selectedProjectId: null,
   editingProjectId: null,
   currentView: "board",
@@ -1914,9 +1915,71 @@ function allReminderRows() {
     project: null,
     reminder,
   }));
-  return [...projectRows, ...publicRows].sort((left, right) => {
+  return [...projectRows, ...publicRows];
+}
+
+function reminderRowText(row) {
+  return [
+    row.scope === "project" ? "订单提醒" : "公共提醒",
+    row.project?.code,
+    row.project?.title,
+    row.project?.author,
+    row.project?.owner,
+    row.project?.partner,
+    row.project?.status,
+    row.project?.currentNode,
+    row.reminder.person,
+    row.reminder.note,
+    row.reminder.source,
+    row.reminder.actor,
+    row.reminder.completedBy,
+    row.reminder.completionNote,
+    reminderItemStatus(row.reminder),
+    confirmationStatusText(row.reminder),
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function reminderTabMatches(row, tab) {
+  const reminder = row.reminder;
+  if (tab === "project") return row.scope === "project";
+  if (tab === "public") return row.scope === "public";
+  if (tab === "pending") return !["sent", "completed", "cancelled", "failed"].includes(reminder.status);
+  if (tab === "sent") return reminder.status === "sent";
+  if (tab === "completed") return reminder.status === "completed" || Boolean(reminder.completedAt);
+  if (tab === "failed") return reminder.status === "failed";
+  if (tab === "today") return dateString(reminder.date) === dateString(new Date());
+  return true;
+}
+
+function filteredReminderRows() {
+  const filters = state.reminderFilters || { tab: "all", person: "全部", keyword: "", sort: "timeAsc" };
+  const keyword = String(filters.keyword || "").trim().toLowerCase();
+  const person = filters.person || "全部";
+  const rows = allReminderRows()
+    .filter((row) => reminderTabMatches(row, filters.tab || "all"))
+    .filter((row) => person === "全部" || row.reminder.person === person || row.reminder.actor === person)
+    .filter((row) => !keyword || reminderRowText(row).includes(keyword));
+  return rows.sort((left, right) => {
+    if (filters.sort === "timeDesc") return parseDate(right.reminder.date).getTime() - parseDate(left.reminder.date).getTime();
+    if (filters.sort === "personAsc") return String(left.reminder.person).localeCompare(String(right.reminder.person), "zh-Hans-CN") || parseDate(left.reminder.date).getTime() - parseDate(right.reminder.date).getTime();
+    if (filters.sort === "statusAsc") return reminderItemStatus(left.reminder).localeCompare(reminderItemStatus(right.reminder), "zh-Hans-CN") || parseDate(left.reminder.date).getTime() - parseDate(right.reminder.date).getTime();
     return parseDate(left.reminder.date).getTime() - parseDate(right.reminder.date).getTime();
   });
+}
+
+function reminderTabItems() {
+  const rows = allReminderRows();
+  const tabs = [
+    ["all", "全部"],
+    ["today", "今日"],
+    ["pending", "待提醒"],
+    ["sent", "待确认"],
+    ["completed", "已完成"],
+    ["failed", "失败"],
+    ["project", "订单提醒"],
+    ["public", "公共提醒"],
+  ];
+  return tabs.map(([key, label]) => [key, label, rows.filter((row) => reminderTabMatches(row, key)).length]);
 }
 
 function confirmationStatusText(reminder) {
@@ -1931,8 +1994,10 @@ function confirmationStatusText(reminder) {
 }
 
 function renderRemindersPanel() {
-  const rows = allReminderRows();
+  const rows = filteredReminderRows();
+  const filters = state.reminderFilters || { tab: "all", person: "全部", keyword: "", sort: "timeAsc" };
   const upcomingPublic = activePublicReminders().length;
+  const personOptions = ["全部", ...state.teamMembers.map((member) => member.name)];
   elements.adminContent.innerHTML = `
     <div class="data-panel-stack">
       <section class="data-panel">
@@ -1970,6 +2035,43 @@ function renderRemindersPanel() {
           </label>
           <button type="submit" class="button button-primary">新增公共提醒</button>
         </form>
+      </section>
+      <section class="data-panel">
+        <div class="table-toolbar">
+          <div>
+            <h3>提醒内容筛选</h3>
+            <div class="mini-text">可按页签、人员、关键字和时间顺序筛选提醒内容。</div>
+          </div>
+          <span class="chip chip-status">当前显示 ${rows.length} 条</span>
+        </div>
+        <div class="reminder-tabs">
+          ${reminderTabItems().map(([key, label, count]) => `
+            <button type="button" class="admin-nav-button ${filters.tab === key ? "is-active" : ""}" data-reminder-tab="${escapeHtml(key)}">
+              <strong>${escapeHtml(label)}</strong>
+              <span class="mini-text">${count} 条</span>
+            </button>`).join("")}
+        </div>
+        <div class="reminder-filter-toolbar">
+          <label class="mini-field">
+            <span>人员</span>
+            <select data-reminder-filter="person">
+              ${personOptions.map((person) => `<option value="${escapeHtml(person)}" ${filters.person === person ? "selected" : ""}>${escapeHtml(person === "全部" ? "全部人员" : person)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="mini-field">
+            <span>筛选内容</span>
+            <input data-reminder-filter="keyword" value="${escapeHtml(filters.keyword || "")}" placeholder="搜索项目、事项、发起人、合作方、状态" />
+          </label>
+          <label class="mini-field">
+            <span>排序</span>
+            <select data-reminder-filter="sort">
+              <option value="timeAsc" ${filters.sort === "timeAsc" ? "selected" : ""}>按提醒时间从早到晚</option>
+              <option value="timeDesc" ${filters.sort === "timeDesc" ? "selected" : ""}>按提醒时间从晚到早</option>
+              <option value="personAsc" ${filters.sort === "personAsc" ? "selected" : ""}>按提醒人排序</option>
+              <option value="statusAsc" ${filters.sort === "statusAsc" ? "selected" : ""}>按状态排序</option>
+            </select>
+          </label>
+        </div>
       </section>
     </div>
     ${rows.length ? `
@@ -2013,22 +2115,27 @@ function renderPushLogsPanel() {
   const pushLogs = (Array.isArray(state.pushLogs) ? state.pushLogs : []).slice().sort((left, right) => {
     return parseDate(right.pushedAt).getTime() - parseDate(left.pushedAt).getTime();
   });
+  const estimatedSizeKb = Math.max(1, Math.round(JSON.stringify(pushLogs).length / 1024));
   elements.adminContent.innerHTML = `
     <div class="data-panel-stack">
       <section class="data-panel">
         <div class="table-toolbar">
           <div>
             <h3>企业微信信息推送记录</h3>
-            <div class="mini-text">记录每一次主动推送和到点提醒，便于追查谁发给谁、什么时候发、有没有成功。</div>
+            <div class="mini-text">记录每一次主动推送和到点提醒；系统会全部保留，不再自动删除旧记录。</div>
           </div>
-          <span class="chip chip-status">保留最近 ${pushLogs.length} 条</span>
+          <div class="toolbar-actions">
+            <span class="chip chip-status">全部保留 ${pushLogs.length} 条 · 约 ${estimatedSizeKb} KB</span>
+            <button type="button" class="table-action table-action-danger" data-admin-action="clear-push-logs" ${pushLogs.length ? "" : "disabled"}>清空记录</button>
+          </div>
         </div>
+        <div class="mini-text">提示：记录量特别大时会占用存储空间，也会让后台表格变慢；后续由后台管理员按需删除。</div>
       </section>
     </div>
     ${pushLogs.length ? `
       <div class="table-wrapper push-log-wrapper">
         <table>
-          <thead><tr><th>推送时间</th><th>发起人</th><th>接收人</th><th>推送内容</th><th>结果</th><th>确认状态</th><th>来源/项目</th><th>失败原因</th></tr></thead>
+          <thead><tr><th>推送时间</th><th>发起人</th><th>接收人</th><th>推送内容</th><th>结果</th><th>确认状态</th><th>来源/项目</th><th>失败原因</th><th>操作</th></tr></thead>
           <tbody>
             ${pushLogs.map((log) => {
               const projectText = [log.projectCode, log.projectTitle].filter(Boolean).join(" · ");
@@ -2051,6 +2158,7 @@ function renderPushLogsPanel() {
                   </td>
                   <td>${escapeHtml(sourceText)}</td>
                   <td class="push-error-cell">${escapeHtml(log.error || "-")}</td>
+                  <td><button type="button" class="table-action table-action-danger" data-admin-action="delete-push-log" data-push-log-id="${escapeHtml(log.id)}">删除</button></td>
                 </tr>`;
             }).join("")}
           </tbody>
@@ -2932,6 +3040,28 @@ async function completeReminderFromAdmin(scope, reminderId, projectId) {
   render();
 }
 
+async function deletePushLog(logId) {
+  const log = (Array.isArray(state.pushLogs) ? state.pushLogs : []).find((item) => item.id === logId);
+  if (!log) return;
+  const confirmed = window.confirm(`确定删除这条推送记录吗？\n接收人：${log.receiver || "未设置"}\n推送时间：${formatPushLogTime(log.pushedAt)}`);
+  if (!confirmed) return;
+  state.pushLogs = state.pushLogs.filter((item) => item.id !== logId);
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function clearPushLogs() {
+  const count = Array.isArray(state.pushLogs) ? state.pushLogs.length : 0;
+  if (!count) return;
+  const confirmed = window.confirm(`确定清空全部 ${count} 条推送记录吗？这个操作不会删除订单和提醒任务，但推送留痕会被清掉。`);
+  if (!confirmed) return;
+  state.pushLogs = [];
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
 async function deleteDepartment(name) {
   if (!hasPermission("管理人员")) return;
   if (name === "未分配部门") {
@@ -3277,6 +3407,12 @@ function attachEvents() {
       return;
     }
     const button = event.target.closest("[data-admin-action]");
+      const reminderTab = event.target.closest("[data-reminder-tab]");
+      if (reminderTab) {
+        state.reminderFilters.tab = reminderTab.dataset.reminderTab || "all";
+        render();
+        return;
+      }
       if (!button) return;
       if (button.dataset.adminAction === "add-user") openAdminModal("user", null);
       if (button.dataset.adminAction === "edit-user") openAdminModal("user", { id: button.dataset.memberId });
@@ -3299,10 +3435,17 @@ function attachEvents() {
       if (button.dataset.adminAction === "move-workflow-node-up") void moveWorkflowNode(button.dataset.workflowNodeId, "up");
       if (button.dataset.adminAction === "move-workflow-node-down") void moveWorkflowNode(button.dataset.workflowNodeId, "down");
       if (button.dataset.adminAction === "complete-reminder") void completeReminderFromAdmin(button.dataset.reminderScope, button.dataset.reminderId, button.dataset.projectId);
+      if (button.dataset.adminAction === "delete-push-log") void deletePushLog(button.dataset.pushLogId);
+      if (button.dataset.adminAction === "clear-push-logs") void clearPushLogs();
     });
 
   elements.adminContent.addEventListener("change", (event) => {
     const target = event.target;
+    if (target.dataset.reminderFilter) {
+      state.reminderFilters[target.dataset.reminderFilter] = target.value;
+      render();
+      return;
+    }
     if (target.dataset.confirmablePushEnabled !== undefined) {
       state.confirmablePushEnabled = target.checked;
       saveSettings();
@@ -3358,6 +3501,14 @@ function attachEvents() {
       saveSettings();
       void flushRemoteSync();
     }
+  });
+
+  elements.adminContent.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target.dataset.reminderFilter) return;
+    state.reminderFilters[target.dataset.reminderFilter] = target.value;
+    clearTimeout(state.reminderFilterTimer);
+    state.reminderFilterTimer = setTimeout(render, 250);
   });
 
   elements.adminContent.addEventListener("submit", (event) => {

@@ -32,6 +32,24 @@ function initialPassword() {
   return process.env.WORKPAD_INITIAL_PASSWORD || DEFAULT_INITIAL_PASSWORD;
 }
 
+function initialPasswordCandidates() {
+  return [...new Set([
+    initialPassword(),
+    DEFAULT_INITIAL_PASSWORD,
+    "Workpad@2026",
+  ].filter(Boolean))];
+}
+
+function passwordMatchesInitial(password) {
+  const value = String(password || "");
+  return initialPasswordCandidates().some((candidate) => value === candidate);
+}
+
+function memberUsesInitialPassword(member) {
+  if (!member.passwordHash || !member.passwordSalt) return false;
+  return initialPasswordCandidates().some((candidate) => verifyMemberPassword(member, candidate));
+}
+
 function sign(value) {
   return crypto.createHmac("sha256", authSecret()).update(value).digest("base64url");
 }
@@ -217,8 +235,10 @@ module.exports = {
   ensureMemberUsernames,
   findMemberForLogin,
   initialPassword,
+  memberUsesInitialPassword,
   memberHasPermission,
   mergeMemberAuthFields,
+  passwordMatchesInitial,
   publicMember,
   requireAuth,
   sanitizeStateForClient,

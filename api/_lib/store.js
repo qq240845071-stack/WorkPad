@@ -219,7 +219,7 @@ function normalizePushLogs(pushLogs) {
       reminderId: String(item.reminderId || ""),
       reminderScope: String(item.reminderScope || ""),
     };
-  }).slice(0, 300);
+  });
 }
 
 function normalizeState(rawState) {

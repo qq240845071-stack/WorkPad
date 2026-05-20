@@ -5,7 +5,9 @@ const {
   ensureMemberUsernames,
   findMemberForLogin,
   initialPassword,
+  memberUsesInitialPassword,
   memberHasPermission,
+  passwordMatchesInitial,
   publicMember,
   requireAuth,
   sessionCookie,
@@ -36,7 +38,7 @@ function authAction(req) {
 }
 
 function canBootstrapMember(member) {
-  return Boolean(member && member.role === "超级管理员" && !member.passwordHash);
+  return Boolean(member && !member.passwordHash);
 }
 
 async function handleLogin(req, res) {
@@ -58,11 +60,16 @@ async function handleLogin(req, res) {
     return sendJson(res, 401, { ok: false, message: "用户名或密码不正确。" });
   }
 
-  if (canBootstrapMember(member) && password === initialPassword()) {
+  if (canBootstrapMember(member) && passwordMatchesInitial(password)) {
     setMemberPassword(member, password, { resetRequired: true });
     changed = true;
   } else if (!verifyMemberPassword(member, password)) {
+    if (member.passwordResetRequired && passwordMatchesInitial(password) && memberUsesInitialPassword(member)) {
+      setMemberPassword(member, password, { resetRequired: true });
+      changed = true;
+    } else {
     return sendJson(res, 401, { ok: false, message: "用户名或密码不正确。" });
+    }
   }
 
   member.lastLoginAt = new Date().toISOString();

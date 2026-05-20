@@ -588,6 +588,16 @@ async function handleIncomingMessage(message) {
       transcriptSource: transcript?.source || "",
     });
     const saved = await writeStoredState(state);
+    if (replyText.startsWith("您发布的")) {
+      try {
+        await sendAppTextMessage({ toUser: message.FromUserName, content: replyText });
+        return { replyText: "", snapshot: saved, activeReplySent: true, ...extra };
+      } catch (error) {
+        updateInboxByKey(state, key, {
+          activeReplyError: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     return { replyText, snapshot: saved, ...extra };
   }
 
