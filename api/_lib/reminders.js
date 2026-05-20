@@ -59,6 +59,8 @@ function normalizeReminderItem(item, project, index = 0) {
     completedAt: textValue(source.completedAt || ""),
     completedBy: textValue(source.completedBy || ""),
     completionNote: textValue(source.completionNote || ""),
+    updatedAt: textValue(source.updatedAt || ""),
+    updatedBy: textValue(source.updatedBy || ""),
   };
 }
 

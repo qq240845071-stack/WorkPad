@@ -1,7 +1,7 @@
 const { readStoredState, writeStoredState } = require("./store");
 const { getConfig } = require("./wecom-crypto");
 const { createAudioTranscription, createChatCompletion } = require("./ai-client");
-const { appendProjectReminder, appendPublicReminder, normalizeProjectReminders, normalizePublicReminders } = require("./reminders");
+const { appendProjectReminder, appendPublicReminder, normalizeProjectReminders, normalizePublicReminders, syncProjectReminderFields } = require("./reminders");
 const { appendPushLog } = require("./push-log");
 
 const MESSAGE_DEDUPE_TTL_MS = 10 * 60 * 1000;
@@ -215,6 +215,7 @@ function helpText() {
     "5. 我的提醒",
     "6. 绑定 贾涛",
     "7. 公共提醒：提醒 张莹 明天 9:30 参加选题会",
+    "8. 修改刚才的提醒：改成今天晚上8点15",
     "也可以直接发语音或自然语言：明天下午三点提醒张莹跟进 BK-2026-005 合同回签",
   ].join("\n");
 }
@@ -252,6 +253,17 @@ function buildPublicReminderText(reminder) {
     `提醒时间：${reminder.date}`,
     reminder.actor ? `发起人：${reminder.actor}` : "",
     reminder.note ? `说明：${reminder.note}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function buildUpdatedReminderText(target, reminder, changes) {
+  return [
+    "已修改提醒任务：",
+    target.scope === "project" && target.project ? `项目：${target.project.title}` : "类型：公共提醒",
+    target.scope === "project" && target.project ? `状态：${target.project.status} / ${target.project.currentNode}` : "",
+    `提醒人：${reminder.person}`,
+    changes.oldDate && changes.newDate ? `提醒时间：${changes.oldDate} -> ${changes.newDate}` : `提醒时间：${reminder.date}`,
+    changes.oldNote && changes.newNote ? `说明：${changes.oldNote} -> ${changes.newNote}` : reminder.note ? `说明：${reminder.note}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -364,6 +376,108 @@ function parseReminderSchedule(rawText) {
   return { reminderDate: `${date} ${time}`, note };
 }
 
+function toChinaDateTime(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 0;
+  return date.getTime();
+}
+
+function parseChinaDateTimeValue(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{1,2}):(\d{2})/);
+  if (!match) return toChinaDateTime(text);
+  const [, year, month, day, hour, minute] = match;
+  return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour) - 8, Number(minute), 0, 0);
+}
+
+function normalizePeriodHour(hour, period) {
+  let nextHour = Number(hour);
+  if (["下午", "晚上", "今晚", "明晚"].includes(period) && nextHour < 12) nextHour += 12;
+  if (["中午"].includes(period) && nextHour < 11) nextHour += 12;
+  return nextHour;
+}
+
+function monthDayDate(month, day) {
+  const now = nowDate();
+  const year = now.getFullYear();
+  return `${year}-${String(Number(month)).padStart(2, "0")}-${String(Number(day)).padStart(2, "0")}`;
+}
+
+function parseLooseDateTime(rawText) {
+  const text = String(rawText || "").trim().replace(/：/g, ":");
+  if (!text) return null;
+
+  const explicitDateTime = text.match(/(\d{4}-\d{1,2}-\d{1,2})\s*(上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?:[:点](\d{1,2}))?/);
+  if (explicitDateTime) {
+    const [, rawDate, period = "", rawHour, rawMinute = "0"] = explicitDateTime;
+    const [year, month, day] = rawDate.split("-");
+    const hour = normalizePeriodHour(rawHour, period);
+    const minute = Number(rawMinute);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return {
+        reminderDate: `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+        matchedText: explicitDateTime[0],
+      };
+    }
+  }
+
+  const monthDayMatch = text.match(/(\d{1,2})月(\d{1,2})[日号]?\s*(上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?:[:点](\d{1,2}))?/);
+  if (monthDayMatch) {
+    const [, month, day, period = "", rawHour, rawMinute = "0"] = monthDayMatch;
+    const hour = normalizePeriodHour(rawHour, period);
+    const minute = Number(rawMinute);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return {
+        reminderDate: `${monthDayDate(month, day)} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+        matchedText: monthDayMatch[0],
+      };
+    }
+  }
+
+  let date = "";
+  let impliedPeriod = "";
+  if (/后天/.test(text)) date = dateString(addDays(nowDate(), 2));
+  else if (/明天|明早|明晚/.test(text)) date = dateString(addDays(nowDate(), 1));
+  else if (/今天|今晚|今早|今上午|今下午|今晚上/.test(text)) date = dateString(nowDate());
+
+  if (/今晚|晚上/.test(text)) impliedPeriod = "晚上";
+  else if (/下午/.test(text)) impliedPeriod = "下午";
+  else if (/中午/.test(text)) impliedPeriod = "中午";
+  else if (/明早|早上|上午/.test(text)) impliedPeriod = "上午";
+
+  const timeMatch = text.match(/(上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?:[:点](\d{1,2}))?/);
+  if (!timeMatch) return null;
+  const period = timeMatch[1] || impliedPeriod;
+  const hour = normalizePeriodHour(timeMatch[2], period);
+  const minute = Number(timeMatch[3] || 0);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return {
+    reminderDate: `${date || dateString(nowDate())} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+    matchedText: timeMatch[0],
+  };
+}
+
+function parseUpdateReminderCommand(text) {
+  const raw = String(text || "").trim();
+  if (!/^(改|修改|更改|调整|变更|改成|改为|改到|换成|把)/.test(raw)) return null;
+  const parsedDate = parseLooseDateTime(raw);
+  if (!parsedDate) return { type: "update-reminder", error: "missing-time", raw };
+  const note = raw
+    .replace(/^(把)?(刚才|上一个|上一条|那个|这个)?(的)?(提醒|任务)?/, "")
+    .replace(/^(改|修改|更改|调整|变更|改成|改为|改到|换成|到)\s*/, "")
+    .replace(parsedDate.matchedText, "")
+    .replace(/今天|明天|后天|今晚|明早|明晚|今早|今上午|今下午|今晚上|上午|早上|中午|下午|晚上/g, "")
+    .replace(/[，,。；;：:]/g, " ")
+    .replace(/^(说明|内容|备注)\s*/, "")
+    .trim();
+  return {
+    type: "update-reminder",
+    reminderDate: parsedDate.reminderDate,
+    note,
+    targetHint: raw,
+  };
+}
+
 function reminderFormatTip() {
   return "提醒需要具体到几点几分。\n订单提醒格式：提醒 陈敏 BK-2026-005 2026-05-20 15:30 催合同回签\n公共提醒格式：提醒 张莹 明天 9:30 参加选题会";
 }
@@ -373,6 +487,9 @@ function parseCommand(content) {
   if (!text) return { type: "empty" };
   if (/^(帮助|help)$/i.test(text)) return { type: "help" };
   if (/^(我的提醒|提醒我)$/i.test(text)) return { type: "my-reminders" };
+
+  const updateMatch = parseUpdateReminderCommand(text);
+  if (updateMatch) return updateMatch;
 
   const bindMatch = text.match(/^绑定\s+(\S+)$/);
   if (bindMatch) {
@@ -452,7 +569,7 @@ function memberCandidates(state) {
 
 function normalizeAiCommand(payload) {
   const type = String(payload?.type || "unknown").trim();
-  if (!["help", "my-reminders", "view", "record", "remind", "public-remind", "bind", "unknown"].includes(type)) {
+  if (!["help", "my-reminders", "view", "record", "remind", "public-remind", "update-reminder", "bind", "unknown"].includes(type)) {
     return { type: "unknown", raw: JSON.stringify(payload || {}) };
   }
   const command = {
@@ -462,6 +579,7 @@ function normalizeAiCommand(payload) {
     keyword: String(payload.keyword || payload.projectKeyword || "").trim(),
     reminderDate: String(payload.reminderDate || "").trim(),
     note: String(payload.note || "").trim(),
+    targetHint: String(payload.targetHint || "").trim(),
     reason: String(payload.reason || "").trim(),
   };
   if (command.type === "remind") {
@@ -474,6 +592,10 @@ function normalizeAiCommand(payload) {
     if (!command.memberKeyword) return { type: "unknown", reason: "缺少提醒人" };
     if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(command.reminderDate)) return { type: "unknown", reason: "缺少精确到分钟的提醒时间" };
     if (!command.note) return { type: "unknown", reason: "缺少提醒内容" };
+  }
+  if (command.type === "update-reminder") {
+    if (!command.reminderDate && !command.note && !command.memberKeyword) return { type: "unknown", reason: "缺少要修改的时间、提醒人或内容" };
+    if (command.reminderDate && !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(command.reminderDate)) return { type: "unknown", reason: "修改提醒时缺少精确到分钟的提醒时间" };
   }
   if (command.type === "record" && (!command.projectKeyword || !command.note)) return { type: "unknown", reason: "记录指令缺少项目或内容" };
   if (command.type === "view" && !command.keyword) return { type: "unknown", reason: "查看指令缺少项目" };
@@ -493,9 +615,10 @@ async function parseNaturalCommand(content, state, actor) {
         content: [
           "你是 WorkPad 订单大看板的企业微信指令解析器，只输出 JSON，不要输出 Markdown。",
           "目标：把员工的自然语言、语音转写文本解析为可执行命令。",
-          "可用 type：help、my-reminders、view、record、remind、public-remind、bind、unknown。",
+          "可用 type：help、my-reminders、view、record、remind、public-remind、update-reminder、bind、unknown。",
           "remind 是订单提醒，必须输出 memberKeyword、projectKeyword、reminderDate、note。reminderDate 必须是 YYYY-MM-DD HH:mm，必须精确到分钟。",
           "public-remind 是公共提醒，不绑定订单；必须输出 memberKeyword、reminderDate、note，不要输出 projectKeyword。",
+          "update-reminder 是修改当前说话人最近创建且未完成的提醒。用户说“改成今天晚上8点15”“把刚才那个提醒改到今晚八点十五”时，输出 update-reminder，并输出 reminderDate。可选输出 note、memberKeyword、projectKeyword、targetHint。",
           "如果用户说“提醒我”，memberKeyword 用当前说话人姓名。",
           "record 必须输出 projectKeyword 和 note。",
           "view 必须输出 keyword 或 projectKeyword。",
@@ -518,11 +641,141 @@ async function parseNaturalCommand(content, state, actor) {
           text,
           "请输出 JSON，订单提醒示例：{\"type\":\"remind\",\"memberKeyword\":\"张莹\",\"projectKeyword\":\"BK-2026-005\",\"reminderDate\":\"2026-05-20 15:30\",\"note\":\"催合同回签\"}",
           "公共提醒示例：{\"type\":\"public-remind\",\"memberKeyword\":\"张莹\",\"reminderDate\":\"2026-05-20 09:30\",\"note\":\"参加选题会\"}",
+          "修改提醒示例：{\"type\":\"update-reminder\",\"reminderDate\":\"2026-05-20 20:15\",\"targetHint\":\"刚才那个提醒\"}",
         ].join("\n"),
       },
     ],
   });
   return normalizeAiCommand(extractJsonObject(completion.reply));
+}
+
+function reminderActivityTime(reminder) {
+  return Math.max(
+    parseChinaDateTimeValue(reminder.updatedAt),
+    parseChinaDateTimeValue(reminder.recordAt),
+    parseChinaDateTimeValue(reminder.createdAt),
+    0,
+  );
+}
+
+function activeReminderForUpdate(reminder) {
+  return !["completed", "cancelled"].includes(String(reminder.status || "").trim());
+}
+
+function sameText(left, right) {
+  return String(left || "").trim().toLowerCase() === String(right || "").trim().toLowerCase();
+}
+
+function collectReminderTargets(state, command, actor) {
+  const projectFilter = command.projectKeyword ? findProject(state, command.projectKeyword) : null;
+  const memberFilter = command.memberKeyword ? findMember(state, command.memberKeyword) : null;
+  const personFilter = memberFilter?.name || command.memberKeyword || "";
+  const targets = [];
+
+  if (command.projectKeyword && !projectFilter) {
+    return { error: `没有找到项目「${command.projectKeyword}」。`, targets: [] };
+  }
+
+  for (const project of Array.isArray(state.projects) ? state.projects : []) {
+    if (projectFilter && project.id !== projectFilter.id) continue;
+    project.reminders = normalizeProjectReminders(project);
+    project.reminders.forEach((reminder, index) => {
+      if (!activeReminderForUpdate(reminder)) return;
+      if (personFilter && reminder.person !== personFilter) return;
+      targets.push({
+        scope: "project",
+        project,
+        reminder,
+        index,
+        actorMatched: sameText(reminder.actor, actor),
+        activityTime: reminderActivityTime(reminder),
+      });
+    });
+  }
+
+  state.publicReminders = normalizePublicReminders(state.publicReminders);
+  state.publicReminders.forEach((reminder, index) => {
+    if (!activeReminderForUpdate(reminder)) return;
+    if (personFilter && reminder.person !== personFilter) return;
+    targets.push({
+      scope: "public",
+      reminder,
+      index,
+      actorMatched: sameText(reminder.actor, actor),
+      activityTime: reminderActivityTime(reminder),
+    });
+  });
+
+  const actorTargets = targets.filter((target) => target.actorMatched);
+  return {
+    targets: (actorTargets.length ? actorTargets : targets)
+      .sort((left, right) => right.activityTime - left.activityTime),
+  };
+}
+
+function updateReminderByCommand(state, command, actor) {
+  if (command.error) {
+    return {
+      ok: false,
+      reason: "修改提醒需要写清楚新的时间，且要精确到分钟。例如：改成今天晚上8点15。",
+    };
+  }
+
+  const member = command.memberKeyword ? findMember(state, command.memberKeyword) : null;
+  if (command.memberKeyword && !member) {
+    return { ok: false, reason: `没有找到人员「${command.memberKeyword}」。` };
+  }
+
+  const { error, targets } = collectReminderTargets(state, command, actor);
+  if (error) return { ok: false, reason: error };
+  if (!targets.length) {
+    return {
+      ok: false,
+      reason: "没有找到可修改的提醒。你可以先创建一条提醒，或在修改时带上项目/提醒人。",
+    };
+  }
+
+  const target = targets[0];
+  const reminder = target.reminder;
+  const changes = {
+    oldDate: reminder.date,
+    oldNote: reminder.note,
+    oldPerson: reminder.person,
+    newDate: command.reminderDate || reminder.date,
+    newNote: command.note || reminder.note,
+    newPerson: member?.name || reminder.person,
+  };
+
+  if (command.reminderDate) reminder.date = command.reminderDate;
+  if (command.note) reminder.note = command.note;
+  if (member) reminder.person = member.name;
+  reminder.status = "pending";
+  reminder.pending = true;
+  reminder.sentAt = "";
+  reminder.lastAttemptAt = "";
+  reminder.lastError = "";
+  reminder.attempts = 0;
+  reminder.updatedAt = dateTimeString(nowDate());
+  reminder.updatedBy = actor;
+
+  if (target.scope === "project" && target.project) {
+    target.project.nextAction = reminder.note || target.project.nextAction;
+    target.project.reminderRecordNotice = `${actor} 已通过企业微信修改提醒：${reminder.person} · ${reminder.date} · ${reminder.note}`;
+    target.project.logs = [
+      { time: dateTimeString(nowDate()), actor, action: "企业微信修改提醒", detail: `提醒修改为：${reminder.person} · ${reminder.date} · ${reminder.note}` },
+      ...(Array.isArray(target.project.logs) ? target.project.logs : []),
+    ].slice(0, 100);
+    syncProjectReminderFields(target.project);
+  } else {
+    state.publicReminders = normalizePublicReminders(state.publicReminders);
+  }
+
+  return {
+    ok: true,
+    target,
+    reminder,
+    changes,
+  };
 }
 
 async function resolveCommand(content, state, actor, options = {}) {
@@ -778,6 +1031,17 @@ async function handleIncomingMessage(message, options = {}) {
     }
     updateProjectFollowUp(project, actor, command.note, command.note, "企业微信记录");
     return saveWithReply(`您发布的记录命令成功。\n已记录到《${project.title}》。\n当前下一步：${project.nextAction}`, { changedProject: project });
+  }
+
+  if (command.type === "update-reminder") {
+    const result = updateReminderByCommand(state, command, actor);
+    if (!result.ok) {
+      return saveWithReply(`您发布的修改提醒命令不成功。\n原因：${result.reason}`);
+    }
+    const sourceTip = source === "ai" ? "已按自然语言解析并修改提醒。" : "";
+    const transcriptTip = transcript?.text ? `语音识别：${transcript.text}` : "";
+    const replyText = ["您发布的修改提醒命令成功。", sourceTip, transcriptTip, buildUpdatedReminderText(result.target, result.reminder, result.changes)].filter(Boolean).join("\n\n");
+    return saveWithReply(replyText, result.target.scope === "project" ? { changedProject: result.target.project } : {});
   }
 
   if (command.type === "public-remind") {
