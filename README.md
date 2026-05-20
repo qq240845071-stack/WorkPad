@@ -52,15 +52,24 @@ vercel dev --listen 4173
 10. 暂停项目、标记完成
 11. 演示数据重置
 12. 内置演示数据自动补回，不会因为本地数据缺项而整批消失
-13. `/api/state` 后端状态接口，前端可通过接口读写项目、人员、部门、角色、权限、合作方和流程配置
-14. `/api/health` 健康检查接口
-15. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架，提醒指令支持精确到分钟，并支持语音转文字后的自然语言提醒解析
-16. `/api/ai/chat`、`/api/ai/risk`、`/api/ai/vision` 后台 AI 管家接口，分别支持对话、风险评估和图片识别
-17. `/api/ai/config` AI 配置接口，后台可按任务配置 Base URL、模型名和供应商说明
+13. `/api/auth/login`、`/api/auth/me`、`/api/auth/logout`、`/api/auth/reset-password` 登录与密码重置接口
+14. `/api/state` 后端状态接口，前端可通过接口读写项目、人员、部门、角色、权限、合作方和流程配置，已要求登录后访问
+15. `/api/health` 健康检查接口
+16. `/api/wecom/callback`、`/api/wecom/send-message`、`/api/wecom/health` 企业微信接入骨架，提醒指令支持精确到分钟，并支持语音转文字后的自然语言提醒解析
+17. `/api/ai/chat`、`/api/ai/risk`、`/api/ai/vision` 后台 AI 管家接口，分别支持对话、风险评估和图片识别
+18. `/api/ai/config` AI 配置接口，后台可按任务配置 Base URL、模型名和供应商说明
+
+## 登录与权限
+
+1. 初始管理员用户名是 `admin`。
+2. 初始管理员密码读取服务端环境变量 `WORKPAD_INITIAL_PASSWORD`；未配置时默认为 `WorkPad@2026`。
+3. 会话签名优先读取 `WORKPAD_AUTH_SECRET`；建议线上单独配置一个长随机密钥。
+4. 人员管理里可以设置登录用户名，并通过“重置密码”生成临时密码。
+5. 企业微信扫码登录需要额外配置企业微信网页登录授权/扫码登录回调域名；未配置前使用用户名密码登录。
 
 ## 当前数据模式
 
-1. 本地直接打开 `index.html` 时，仍然是浏览器本地演示数据。
+1. 登录功能依赖 API，本地调试建议使用 `vercel dev`，不要直接双击打开 `index.html`。
 2. 用 `vercel dev` 启动时，默认走本地文件存储。
 3. 部署到 Vercel 后，如果配置了 `BLOB_READ_WRITE_TOKEN`，会切到持久化的 Blob 存储。
 4. 如果线上没配 Blob，接口仍然能跑，但会退化成临时云端缓存，不适合正式生产。

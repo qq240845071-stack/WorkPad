@@ -1,4 +1,5 @@
 const { createChatCompletion, getAiConfig, hasAiConfig } = require("../_lib/ai-client");
+const { requireAuth } = require("../_lib/auth");
 const { readStoredState } = require("../_lib/store");
 
 function sendJson(res, statusCode, payload) {
@@ -49,6 +50,9 @@ function buildRiskPrompt(state) {
 }
 
 module.exports = async (req, res) => {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+
   if (req.method === "GET") {
     const config = await getAiConfig("risk");
     return sendJson(res, 200, {

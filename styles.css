@@ -78,6 +78,76 @@ body::before {
   background: rgba(35, 64, 77, 0.32);
 }
 
+.is-auth-hidden {
+  display: none !important;
+}
+
+.login-shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.login-card {
+  width: min(520px, 100%);
+  padding: 34px;
+  border: 1px solid rgba(31, 36, 48, 0.1);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, rgba(255, 252, 245, 0.96), rgba(248, 241, 228, 0.9)),
+    radial-gradient(circle at top right, rgba(164, 72, 47, 0.14), transparent 34%);
+  box-shadow: var(--shadow);
+}
+
+.login-card h1 {
+  margin: 8px 0 12px;
+  font-family: var(--heading-font);
+  font-size: clamp(34px, 6vw, 54px);
+}
+
+.login-copy,
+.login-message,
+.login-hint {
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.login-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.login-submit,
+.login-wecom-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.login-wecom-button {
+  margin-top: 12px;
+}
+
+.login-message {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(35, 64, 77, 0.08);
+}
+
+.login-message.is-error {
+  background: rgba(164, 72, 47, 0.1);
+  color: #7f311d;
+}
+
+.login-hint {
+  margin-top: 14px;
+  font-size: 13px;
+}
+
 .app-shell {
   position: relative;
   z-index: 1;

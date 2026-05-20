@@ -203,6 +203,10 @@ const state = {
   aiVisionPending: false,
   aiVisionResult: "",
   aiVisionError: "",
+  authUser: null,
+  authReady: false,
+  authPending: false,
+  wecomScanLoginAvailable: false,
 };
 
 const runtime = {
@@ -217,6 +221,14 @@ const runtime = {
 };
 
 const elements = {
+  loginView: document.getElementById("loginView"),
+  loginForm: document.getElementById("loginForm"),
+  loginUsername: document.getElementById("loginUsername"),
+  loginPassword: document.getElementById("loginPassword"),
+  loginSubmitButton: document.getElementById("loginSubmitButton"),
+  loginMessage: document.getElementById("loginMessage"),
+  wecomLoginButton: document.getElementById("wecomLoginButton"),
+  appShell: document.getElementById("appShell"),
   noticeBar: document.getElementById("noticeBar"),
   boardView: document.getElementById("boardView"),
   adminView: document.getElementById("adminView"),
@@ -255,6 +267,7 @@ const elements = {
   adminModalContent: document.getElementById("adminModalContent"),
   newProjectButton: document.getElementById("newProjectButton"),
   resetDemoButton: document.getElementById("resetDemoButton"),
+  logoutButton: document.getElementById("logoutButton"),
   searchInput: document.getElementById("searchInput"),
   ownerFilter: document.getElementById("ownerFilter"),
   statusFilter: document.getElementById("statusFilter"),
@@ -492,10 +505,15 @@ function allWorkflowNodes() {
 function normalizeTeamMembers(members) {
   return (Array.isArray(members) ? members : []).map((member) => {
     const fallback = TEAM_MEMBERS.find((item) => item.id === member.id || item.name === member.name) || {};
+    const index = (Array.isArray(members) ? members : []).indexOf(member);
+    const fallbackUsername = index === 0 || member.role === "超级管理员" ? "admin" : String(member.id || fallback.id || `user${index + 1}`).replace(/^user-/, "");
     return {
       ...fallback,
       ...member,
+      username: String(member.username || fallback.username || fallbackUsername).trim(),
       wecomUserId: member.wecomUserId ?? fallback.wecomUserId ?? "",
+      passwordReady: Boolean(member.passwordReady),
+      passwordResetRequired: Boolean(member.passwordResetRequired),
     };
   });
 }
@@ -617,6 +635,90 @@ function updateRuntimeMeta(meta) {
   runtime.lastError = "";
 }
 
+function setLoginMessage(message, isError = false) {
+  if (!elements.loginMessage) return;
+  elements.loginMessage.textContent = message;
+  elements.loginMessage.classList.toggle("is-error", Boolean(isError));
+}
+
+function setAuthenticatedView(isAuthenticated) {
+  elements.loginView.classList.toggle("is-auth-hidden", isAuthenticated);
+  elements.appShell.classList.toggle("is-auth-hidden", !isAuthenticated);
+  if (!isAuthenticated) {
+    state.authUser = null;
+    state.authReady = false;
+    runtime.apiReady = false;
+  }
+}
+
+function syncAuthenticatedUser() {
+  if (!state.authUser) return;
+  const member = state.teamMembers.find((item) => item.id === state.authUser.id);
+  if (!member) return;
+  state.currentUserId = member.id;
+  state.authUser = { ...state.authUser, ...member };
+}
+
+async function requestAuthSession() {
+  try {
+    const response = await fetch("/api/auth/me");
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) return false;
+    state.authUser = result.user;
+    state.currentUserId = result.user.id;
+    state.wecomScanLoginAvailable = Boolean(result.wecomScanLoginAvailable);
+    state.authReady = true;
+    setAuthenticatedView(true);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function loginWithPassword(form) {
+  if (state.authPending) return;
+  const formData = new FormData(form);
+  state.authPending = true;
+  elements.loginSubmitButton.disabled = true;
+  setLoginMessage("正在登录……");
+  try {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: String(formData.get("username") || "").trim(),
+        password: String(formData.get("password") || ""),
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.message || "登录失败。");
+    state.authUser = result.user;
+    state.currentUserId = result.user.id;
+    state.wecomScanLoginAvailable = Boolean(result.wecomScanLoginAvailable);
+    state.authReady = true;
+    form.reset();
+    setAuthenticatedView(true);
+    render();
+    await hydrateRemoteState();
+    await loadAiSettings();
+  } catch (error) {
+    setLoginMessage(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    state.authPending = false;
+    elements.loginSubmitButton.disabled = false;
+  }
+}
+
+async function logout() {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch (error) {
+  }
+  setAuthenticatedView(false);
+  setLoginMessage("已退出登录。请输入账号密码重新进入。");
+  elements.loginUsername.focus();
+}
+
 async function requestRemoteState(method = "GET", payload) {
   const response = await fetch("/api/state", {
     method,
@@ -624,6 +726,10 @@ async function requestRemoteState(method = "GET", payload) {
     body: payload ? JSON.stringify(payload) : undefined,
   });
   const result = await response.json();
+  if (response.status === 401) {
+    await logout();
+    throw new Error("登录已失效，请重新登录。");
+  }
   if (!response.ok || !result.ok) {
     throw new Error(result.message || "后台接口请求失败");
   }
@@ -636,6 +742,7 @@ async function hydrateRemoteState() {
     runtime.hydrating = true;
     const result = await requestRemoteState("GET");
     applyStateSnapshot(result.state || {});
+    syncAuthenticatedUser();
     updateRuntimeMeta(result.meta);
     render();
   } catch (error) {
@@ -1053,8 +1160,10 @@ function renderClock() {
 function renderIdentity() {
   elements.currentUserSelect.innerHTML = state.teamMembers.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join("");
   elements.currentUserSelect.value = state.currentUserId;
+  elements.currentUserSelect.disabled = true;
+  elements.currentUserSelect.title = "当前身份由登录账号决定，如需切换请退出后重新登录。";
   elements.currentUserName.textContent = currentUser().name;
-  elements.currentUserRole.textContent = `${currentUser().role} · ${currentUser().department}`;
+  elements.currentUserRole.textContent = `${currentUser().role} · ${currentUser().department} · ${currentUser().username || "未设用户名"}`;
 }
 
 function renderCurrentNodeOptions(businessLineId = DEFAULT_BUSINESS_LINE_ID, selectedNode = "") {
@@ -1662,20 +1771,23 @@ function renderAdminContent() {
       </div>
       <div class="table-wrapper">
         <table>
-          <thead><tr><th>姓名</th><th>角色</th><th>部门</th><th>企微账号 UserId</th><th>绑定状态</th><th>在途项目</th><th>今日提醒</th><th>操作</th></tr></thead>
+          <thead><tr><th>姓名</th><th>用户名</th><th>角色</th><th>部门</th><th>企微账号 UserId</th><th>企微绑定</th><th>密码状态</th><th>在途项目</th><th>今日提醒</th><th>操作</th></tr></thead>
           <tbody>
             ${state.teamMembers.map((member) => `
               <tr>
                 <td>${escapeHtml(member.name)}</td>
+                <td>${escapeHtml(member.username || "未设置")}</td>
                 <td><span class="permission-badge">${escapeHtml(member.role)}</span></td>
                 <td>${escapeHtml(member.department)}</td>
                   <td>${escapeHtml(member.wecomUserId || "未设置")}</td>
                   <td>${wecomBindingBadge(member)}</td>
+                  <td><span class="binding-badge ${member.passwordReady ? "is-bound" : "is-unbound"}">${member.passwordReady ? "已设置" : "待重置"}</span></td>
                   <td>${state.projects.filter((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status)).length}</td>
                   <td>${state.projects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length}</td>
                   <td>
                     <div class="table-action-group">
                       <button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>编辑</button>
+                      <button type="button" class="table-action" data-admin-action="reset-password" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>重置密码</button>
                       <button type="button" class="table-action table-action-danger" data-admin-action="delete-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>删除</button>
                     </div>
                   </td>
@@ -2036,6 +2148,7 @@ function openAdminModal(mode, payload) {
       <form id="adminUserForm" class="project-form">
         <div class="modal-form-grid">
           <label class="field"><span>姓名</span><input name="name" type="text" value="${escapeHtml(member?.name || "")}" required /></label>
+          <label class="field"><span>登录用户名</span><input name="username" type="text" value="${escapeHtml(member?.username || "")}" placeholder="例如 zhangying" required /></label>
           <label class="field"><span>角色</span>
             <select name="role">
               ${roles.map((role) => `<option value="${escapeHtml(role.name)}" ${member?.role === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}
@@ -2051,10 +2164,15 @@ function openAdminModal(mode, payload) {
             <input name="wecomUserId" type="text" value="${escapeHtml(member?.wecomUserId || "")}" placeholder="例如 JiaTao / z.y" />
             <small>绑定成功后用于企业微信消息识别和提醒推送；这里不是微信昵称。</small>
           </label>
+          <div class="field field-full">
+            <span>密码状态</span>
+            <small>${member?.passwordReady ? "已设置登录密码；如人员忘记密码，可以点击下方“重置密码”。" : "尚未设置密码；保存人员后点击“重置密码”生成临时密码。"}</small>
+          </div>
         </div>
         <div class="modal-actions">
           <button type="button" class="button button-ghost" data-admin-close="true">取消</button>
           ${member?.wecomUserId ? `<button type="button" class="button button-secondary" data-admin-unbind-wecom="${escapeHtml(member.id)}">企业微信账号解绑</button>` : ""}
+          ${member ? `<button type="button" class="button button-secondary" data-admin-reset-password="${escapeHtml(member.id)}">重置密码</button>` : ""}
           <button type="submit" class="button button-primary">保存人员</button>
         </div>
       </form>`;
@@ -2304,6 +2422,31 @@ async function unbindMemberWecom(memberId) {
   render();
 }
 
+async function resetMemberPassword(memberId) {
+  if (!hasPermission("管理人员")) return;
+  const member = state.teamMembers.find((item) => item.id === memberId);
+  if (!member) return;
+  const confirmed = window.confirm(`确定重置「${member.name}」的登录密码吗？重置后会得到一个临时密码。`);
+  if (!confirmed) return;
+  try {
+    const response = await fetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memberId }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.message || "重置密码失败。");
+    member.passwordReady = true;
+    member.passwordResetRequired = true;
+    window.alert(`已重置「${member.name}」的密码。\n用户名：${result.username || member.username}\n临时密码：${result.temporaryPassword}\n请只通过可信渠道发给本人。`);
+    closeAdminModal();
+    await hydrateRemoteState();
+    render();
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : String(error));
+  }
+}
+
 async function deleteDepartment(name) {
   if (!hasPermission("管理人员")) return;
   if (name === "未分配部门") {
@@ -2528,6 +2671,23 @@ function render() {
 }
 
 function attachEvents() {
+  elements.loginForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void loginWithPassword(event.target);
+  });
+
+  elements.wecomLoginButton.addEventListener("click", () => {
+    if (state.wecomScanLoginAvailable) {
+      setLoginMessage("企业微信扫码登录服务端开关已打开，但当前版本还需要补企业微信回调换取身份；先使用用户名密码登录。", true);
+      return;
+    }
+    setLoginMessage("企业微信扫码登录需要先在企业微信后台配置网页登录授权/扫码登录回调域名；未配置前先使用用户名密码登录。");
+  });
+
+  elements.logoutButton.addEventListener("click", () => {
+    void logout();
+  });
+
   elements.viewToggle.addEventListener("click", (event) => {
     const button = event.target.closest("[data-view]");
     if (!button) return;
@@ -2636,6 +2796,7 @@ function attachEvents() {
       if (button.dataset.adminAction === "add-user") openAdminModal("user", null);
       if (button.dataset.adminAction === "edit-user") openAdminModal("user", { id: button.dataset.memberId });
       if (button.dataset.adminAction === "delete-user") void deleteMember(button.dataset.memberId);
+      if (button.dataset.adminAction === "reset-password") void resetMemberPassword(button.dataset.memberId);
       if (button.dataset.adminAction === "add-department") openAdminModal("department", "");
       if (button.dataset.adminAction === "edit-department") openAdminModal("department", button.dataset.departmentName);
       if (button.dataset.adminAction === "delete-department") void deleteDepartment(button.dataset.departmentName);
@@ -2748,6 +2909,11 @@ function attachEvents() {
       void unbindMemberWecom(unbindButton.dataset.adminUnbindWecom);
       return;
     }
+    const resetPasswordButton = event.target.closest("[data-admin-reset-password]");
+    if (resetPasswordButton) {
+      void resetMemberPassword(resetPasswordButton.dataset.adminResetPassword);
+      return;
+    }
     if (event.target.closest("[data-admin-close]")) closeAdminModal();
   });
   elements.adminModalContent.addEventListener("submit", async (event) => {
@@ -2757,18 +2923,29 @@ function attachEvents() {
       const formData = new FormData(event.target);
       const existing = state.teamMembers.find((item) => item.id === state.adminEditingId);
       const nextName = String(formData.get("name") || "").trim();
+      const nextUsername = String(formData.get("username") || "").trim().toLowerCase();
         const nextRole = String(formData.get("role") || "").trim();
         const nextDepartment = String(formData.get("department") || "").trim();
         const nextWecomUserId = String(formData.get("wecomUserId") || "").trim();
-        if (!nextName || !nextRole || !nextDepartment) return;
+        if (!nextName || !nextUsername || !nextRole || !nextDepartment) return;
+        if (!/^[a-zA-Z0-9._-]{2,32}$/.test(nextUsername)) {
+          window.alert("用户名只能使用字母、数字、点、下划线或短横线，长度 2-32 位。");
+          return;
+        }
+        const duplicateUsername = state.teamMembers.some((member) => member.id !== existing?.id && String(member.username || "").toLowerCase() === nextUsername);
+        if (duplicateUsername) {
+          window.alert("这个登录用户名已经存在。");
+          return;
+        }
         if (existing) {
           if (existing.name !== nextName) renameMemberAcrossProjects(existing.name, nextName);
           existing.name = nextName;
+        existing.username = nextUsername;
         existing.role = nextRole;
         existing.department = nextDepartment;
         existing.wecomUserId = nextWecomUserId;
         } else {
-          state.teamMembers.push({ id: uid(), name: nextName, role: nextRole, department: nextDepartment, wecomUserId: nextWecomUserId });
+          state.teamMembers.push({ id: uid(), name: nextName, username: nextUsername, role: nextRole, department: nextDepartment, wecomUserId: nextWecomUserId, passwordReady: false });
         }
         state.departments = normalizeDepartments(state.departments, state.teamMembers);
         saveSettings();
@@ -2905,11 +3082,23 @@ function attachEvents() {
   });
 }
 
-loadSettings();
-state.projects = loadProjects();
-saveProjects();
-saveSettings();
-attachEvents();
-render();
-void hydrateRemoteState();
-void loadAiSettings();
+async function boot() {
+  loadSettings();
+  state.projects = loadProjects();
+  attachEvents();
+  const loggedIn = await requestAuthSession();
+  if (!loggedIn) {
+    setAuthenticatedView(false);
+    setLoginMessage("请输入用户名和密码登录。初始管理员可使用 admin 账号。");
+    elements.loginUsername.focus();
+    return;
+  }
+  syncAuthenticatedUser();
+  saveProjects();
+  saveSettings();
+  render();
+  await hydrateRemoteState();
+  await loadAiSettings();
+}
+
+void boot();

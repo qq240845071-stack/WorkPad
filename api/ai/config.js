@@ -1,5 +1,6 @@
 const { getAiConfig, hasAiConfig } = require("../_lib/ai-client");
 const { readAiSettings, writeAiSettings, normalizeAiSettings } = require("../_lib/ai-settings-store");
+const { memberHasPermission, requireAuth } = require("../_lib/auth");
 
 async function readJsonBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -32,12 +33,18 @@ async function publicConfig() {
 }
 
 module.exports = async (req, res) => {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+
   try {
     if (req.method === "GET") {
       return sendJson(res, 200, { ok: true, ...(await publicConfig()) });
     }
 
     if (req.method === "PUT") {
+      if (!memberHasPermission(auth.state, auth.member, "管理权限")) {
+        return sendJson(res, 403, { ok: false, message: "当前账号没有修改 AI 配置权限。" });
+      }
       const body = await readJsonBody(req);
       await writeAiSettings(normalizeAiSettings(body.tasks || body.settings || {}));
       return sendJson(res, 200, { ok: true, ...(await publicConfig()) });

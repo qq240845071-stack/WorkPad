@@ -2,6 +2,7 @@ const { readStoredState, writeStoredState } = require("../_lib/store");
 const { getConfig, hasSendConfig } = require("../_lib/wecom-crypto");
 const { sendAppTextMessage, findMember, hasWecomProxyConfig } = require("../_lib/wecom-service");
 const { appendPushLog, memberNameByUserId } = require("../_lib/push-log");
+const { requireAuth } = require("../_lib/auth");
 
 async function readJsonBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -32,6 +33,8 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return sendJson(res, 405, { ok: false, message: "当前接口只支持 POST。" });
   }
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
 
   if (!hasSendConfig() && !hasWecomProxyConfig()) {
     return sendJson(res, 500, {
@@ -53,7 +56,7 @@ module.exports = async (req, res) => {
     let content = String(body.content || "").trim();
     let receiver = memberNameByUserId(state, toUser);
     let projectForLog = null;
-    const actor = String(body.actor || "WorkPad 后台").trim();
+    const actor = String(body.actor || auth.member.name || "WorkPad 后台").trim();
     const source = String(body.source || (body.projectId ? "项目提醒推送" : "手动推送")).trim();
 
     if (body.projectId) {

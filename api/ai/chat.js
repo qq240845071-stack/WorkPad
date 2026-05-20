@@ -1,4 +1,5 @@
 const { createChatCompletion, getAiConfig, hasAiConfig } = require("../_lib/ai-client");
+const { requireAuth } = require("../_lib/auth");
 
 async function readJsonBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -26,6 +27,9 @@ function buildSystemPrompt(context) {
 }
 
 module.exports = async (req, res) => {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+
   if (req.method === "GET") {
     const config = await getAiConfig("chat");
     return sendJson(res, 200, {

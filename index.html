@@ -10,7 +10,37 @@
     <div class="page-glow page-glow-left"></div>
     <div class="page-glow page-glow-right"></div>
 
-    <main class="app-shell">
+    <section class="login-shell" id="loginView">
+      <div class="login-card">
+        <p class="eyebrow">WorkPad Secure Entry</p>
+        <h1>登录订单大看板</h1>
+        <p class="login-copy">
+          请输入后台人员管理中配置的用户名和密码。登录后会按该人员的角色权限进入对应看板和后台模块。
+        </p>
+        <form class="login-form" id="loginForm">
+          <label class="field field-full">
+            <span>用户名</span>
+            <input id="loginUsername" name="username" type="text" autocomplete="username" placeholder="例如 admin / z.y" required />
+          </label>
+          <label class="field field-full">
+            <span>密码</span>
+            <input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="请输入登录密码" required />
+          </label>
+          <button type="submit" class="button button-primary login-submit" id="loginSubmitButton">登录</button>
+        </form>
+        <button type="button" class="button button-secondary login-wecom-button" id="wecomLoginButton">
+          企业微信扫码登录
+        </button>
+        <div class="login-message" id="loginMessage">
+          企业微信扫码登录需要先在企业微信后台配置网页授权/扫码登录回调域名；未配置前先使用用户名密码登录。
+        </div>
+        <div class="login-hint">
+          初始管理员账号：<strong>admin</strong>；初始密码由服务器配置决定，未配置时使用 <strong>WorkPad@2026</strong>。
+        </div>
+      </div>
+    </section>
+
+    <main class="app-shell is-auth-hidden" id="appShell">
       <header class="hero">
         <div class="hero-copy">
           <p class="eyebrow">Publishing Workflow Radar</p>
@@ -44,6 +74,7 @@
           <div class="hero-action-row">
             <button type="button" class="button button-primary" id="newProjectButton">新建项目</button>
             <button type="button" class="button button-ghost" id="resetDemoButton">重置演示数据</button>
+            <button type="button" class="button button-muted" id="logoutButton">退出登录</button>
           </div>
         </div>
       </header>
