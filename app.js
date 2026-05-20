@@ -44,6 +44,19 @@ const STATUS_TO_NODE = {
   已暂停: "作者沟通",
 };
 
+const NODE_TO_STATUS = {
+  作者沟通: "作者沟通中",
+  排版: "排版校稿中",
+  一校: "排版校稿中",
+  二校: "排版校稿中",
+  三校: "排版校稿中",
+  样书: "样书处理中",
+  成品: "成品制作中",
+  合同: "合同处理中",
+  送货: "送货处理中",
+  尾印单: "尾印单处理中",
+};
+
 const TEAM_MEMBERS = [
   { id: "user-zhou", name: "周雯", role: "超级管理员", department: "出版一组", wecomUserId: "" },
   { id: "user-xu", name: "许畅", role: "项目主管", department: "出版二组", wecomUserId: "" },
@@ -502,6 +515,23 @@ function defaultNodeForStatus(status, businessLineId = DEFAULT_BUSINESS_LINE_ID)
   return names[0] || "未设置节点";
 }
 
+function statusForNodeName(nodeName, fallbackStatus = "作者沟通中") {
+  if (NODE_TO_STATUS[nodeName]) return NODE_TO_STATUS[nodeName];
+  if (["待启动", "已暂停", "已完成"].includes(fallbackStatus)) return "作者沟通中";
+  return fallbackStatus || "作者沟通中";
+}
+
+function workflowIndexForProject(project = {}) {
+  const names = workflowNodeNamesForBusinessLine(project.businessLineId);
+  const index = names.findIndex((name) => name === project.currentNode);
+  return { names, index: index >= 0 ? index : 0 };
+}
+
+function nextNodeForProject(project = {}) {
+  const { names, index } = workflowIndexForProject(project);
+  return names[index + 1] || "";
+}
+
 function allWorkflowNodes() {
   return businessLineOptions().flatMap((line) => line.nodes.map((node) => ({ ...node, businessLineId: line.id, businessLineName: line.name })));
 }
@@ -874,6 +904,13 @@ function normalizeNodeDateValue(value, fallback = "") {
   return Number.isNaN(parsed.getTime()) ? "" : dateString(parsed);
 }
 
+function normalizeNodeDateTimeValue(value, fallback = "") {
+  const raw = textValue(value || fallback);
+  if (!raw) return "";
+  const parsed = parseDate(raw);
+  return Number.isNaN(parsed.getTime()) ? "" : dateTimeString(parsed);
+}
+
 function nodeDurationDays(node = {}) {
   const startedAt = normalizeNodeDateValue(node.startedAt || node.enteredAt || node.started || node.planned);
   if (!startedAt) return "";
@@ -912,14 +949,28 @@ function nodeGapText(nodes = [], index = 0) {
   return days === 0 ? "当天" : `${days} 天`;
 }
 
+function nodeTimeText(value, fallback = "") {
+  const normalized = normalizeNodeDateTimeValue(value);
+  if (normalized) return normalized;
+  return fallback;
+}
+
+function nodeOperatorText(node = {}) {
+  return textValue(node.completedBy || node.startedBy || "");
+}
+
 function normalizeProjectNode(node, context = {}, index = 0) {
   const source = node || {};
   const planned = normalizeNodeDateValue(source.planned || source.plannedAt || context.planned);
   const status = textValue(source.status || "未开始") || "未开始";
-  const startedAt = normalizeNodeDateValue(
-    source.startedAt || source.enteredAt || source.started || source.actualStart || (status === "未开始" ? "" : planned)
+  const startedAtTime = normalizeNodeDateTimeValue(
+    source.startedAtTime || source.enteredAtTime || source.startedTime || source.actualStartTime || source.startedAt || source.enteredAt || source.started || source.actualStart || (status === "未开始" ? "" : planned)
   );
-  const completedAt = normalizeNodeDateValue(source.completedAt || source.completed || "");
+  const completedAtTime = normalizeNodeDateTimeValue(source.completedAtTime || source.completedTime || source.completedAt || source.completed || "");
+  const startedAt = normalizeNodeDateValue(
+    source.startedAt || source.enteredAt || source.started || source.actualStart || startedAtTime || (status === "未开始" ? "" : planned)
+  );
+  const completedAt = normalizeNodeDateValue(source.completedAt || source.completed || completedAtTime || "");
   const normalized = {
     ...source,
     name: textValue(source.name || context.name || `节点 ${index + 1}`),
@@ -927,7 +978,11 @@ function normalizeProjectNode(node, context = {}, index = 0) {
     owner: textValue(source.owner || context.owner || "未分配"),
     planned,
     startedAt,
+    startedAtTime,
+    startedBy: textValue(source.startedBy || source.enteredBy || source.operator || ""),
     completedAt,
+    completedAtTime,
+    completedBy: textValue(source.completedBy || ""),
     completed: completedAt,
     reminderPerson: textValue(source.reminderPerson || context.reminderPerson || context.owner || "未分配"),
     reminderDate: normalizeReminderDateValue(source.reminderDate || context.reminderDate || planned),
@@ -960,6 +1015,9 @@ function mergeProjectNodes(existingNodes = [], context = {}) {
   );
   const currentIndex = Math.max(0, baseNodes.findIndex((node) => node.name === context.currentNode));
   const today = dateString(new Date());
+  const operationTime = normalizeNodeDateTimeValue(context.operationTime || context.operatedAt || "");
+  const operationDate = normalizeNodeDateValue(operationTime || "");
+  const operator = textValue(context.operator || "");
   let previousCompletedAt = dateString(startDate);
   return baseNodes.map((baseNode, index) => {
     const existing = existingByName.get(baseNode.name);
@@ -980,25 +1038,41 @@ function mergeProjectNodes(existingNodes = [], context = {}) {
 
     if (index === 0 && !merged.startedAt && context.status !== "待启动") merged.startedAt = dateString(startDate);
     if (index <= currentIndex && baseNode.status !== "未开始" && !merged.startedAt) {
-      merged.startedAt = previousCompletedAt || baseNode.startedAt || today;
+      merged.startedAt = previousCompletedAt || baseNode.startedAt || operationDate || today;
+      if (operationTime && !merged.startedAtTime) merged.startedAtTime = operationTime;
+      if (operator && !merged.startedBy) merged.startedBy = operator;
     }
     if (hasExistingHistory && !existing && baseNode.status !== "未开始") {
-      merged.startedAt = index === 0 ? dateString(startDate) : today;
+      merged.startedAt = index === 0 ? dateString(startDate) : operationDate || today;
+      if (operationTime) merged.startedAtTime = operationTime;
+      if (operator) merged.startedBy = operator;
     }
     if (justStarted) {
-      merged.startedAt = today;
+      merged.startedAt = operationDate || today;
+      if (operationTime) merged.startedAtTime = operationTime;
+      if (operator) merged.startedBy = operator;
     }
     if (index < currentIndex && !merged.completedAt) {
-      merged.completedAt = baseNode.completedAt || today;
+      merged.completedAt = baseNode.completedAt || operationDate || today;
+      if (operationTime && operator) {
+        merged.completedAtTime = operationTime;
+        merged.completedBy = operator;
+      }
     }
     if (justCompleted) {
-      merged.completedAt = today;
+      merged.completedAt = operationDate || today;
+      if (operationTime) merged.completedAtTime = operationTime;
+      if (operator) merged.completedBy = operator;
     }
     if (index === currentIndex && context.status !== "已完成") {
       merged.completedAt = "";
     }
     if (context.status === "已完成" && !merged.completedAt) {
-      merged.completedAt = baseNode.completedAt || today;
+      merged.completedAt = baseNode.completedAt || operationDate || today;
+      if (operationTime && operator) {
+        merged.completedAtTime = operationTime;
+        merged.completedBy = operator;
+      }
     }
     if (index > currentIndex && baseNode.status === "未开始" && !existing?.startedAt) {
       merged.startedAt = "";
@@ -2710,11 +2784,12 @@ function renderNodeTimelineHtml(project) {
               <th>顺序</th>
               <th>流程节点</th>
               <th>状态</th>
-              <th>进入日期</th>
-              <th>完成日期</th>
+              <th>进入时间</th>
+              <th>完成时间</th>
               <th>距上节点</th>
               <th>本节点停留</th>
               <th>负责人</th>
+              <th>操作人</th>
               <th>备注</th>
             </tr>
           </thead>
@@ -2724,11 +2799,12 @@ function renderNodeTimelineHtml(project) {
                 <td>${index + 1}</td>
                 <td><strong>${escapeHtml(node.name)}</strong></td>
                 <td><span class="chip chip-status">${escapeHtml(node.status)}</span></td>
-                <td>${escapeHtml(node.startedAt || "未开始")}</td>
-                <td>${escapeHtml(node.completedAt || (node.status === "未开始" ? "-" : "进行中"))}</td>
+                <td>${escapeHtml(nodeTimeText(node.startedAtTime || node.startedAt, node.startedAt || "未开始"))}</td>
+                <td>${escapeHtml(nodeTimeText(node.completedAtTime || node.completedAt, node.completedAt || (node.status === "未开始" ? "-" : "进行中")))}</td>
                 <td>${escapeHtml(nodeGapText(nodes, index))}</td>
                 <td><span class="node-duration">${escapeHtml(nodeDurationText(node))}</span></td>
                 <td>${escapeHtml(node.owner || "未分配")}</td>
+                <td>${escapeHtml(nodeOperatorText(node) || "-")}</td>
                 <td>${escapeHtml(node.note || "-")}</td>
               </tr>
             `).join("")}
@@ -2749,6 +2825,13 @@ function renderDrawer() {
   const risk = getProjectRisk(project);
   const canEditProject = hasPermission("编辑项目状态");
   const reminders = normalizeProjectReminders(project);
+  const nextNode = nextNodeForProject(project);
+  const startActionHtml = project.status === "待启动"
+    ? `<button type="button" class="button button-primary" data-drawer-action="start" ${canEditProject ? "" : "disabled"}>开始当前节点：${escapeHtml(project.currentNode)}</button>`
+    : "";
+  const advanceActionHtml = project.status !== "待启动" && project.status !== "已完成" && nextNode
+    ? `<button type="button" class="button button-primary" data-drawer-action="advance" ${canEditProject ? "" : "disabled"}>进入下一节点：${escapeHtml(nextNode)}</button>`
+    : "";
   elements.drawerContent.innerHTML = `
     <div class="drawer-content">
       <header class="drawer-header">
@@ -2780,7 +2863,9 @@ function renderDrawer() {
       <section class="detail-card">
         <h3>风险与动作</h3>
         <div class="detail-actions">
-          <button type="button" class="button button-secondary" data-drawer-action="edit" ${canEditProject ? "" : "disabled"}>编辑项目</button>
+          ${startActionHtml}
+          ${advanceActionHtml}
+          <button type="button" class="button button-secondary" data-drawer-action="edit" ${canEditProject ? "" : "disabled"}>编辑基础信息</button>
           <button type="button" class="button button-secondary" data-drawer-action="pause" ${canEditProject ? "" : "disabled"}>${project.status === "已暂停" ? "恢复项目" : "暂停项目"}</button>
           <button type="button" class="button button-primary" data-drawer-action="complete" ${canEditProject ? "" : "disabled"}>标记完成</button>
         </div>
@@ -3033,7 +3118,114 @@ function resetFilters() {
   render();
 }
 
-function handleDrawerAction(action) {
+function nodeTransitionContext(project, operator, operationTime) {
+  return {
+    startDate: project.startDate,
+    owner: project.owner,
+    status: project.status,
+    currentNode: project.currentNode,
+    reminderPerson: project.reminderPerson,
+    reminderDate: project.reminderDate,
+    blockedNode: project.status === "已暂停" ? project.currentNode : "",
+    businessLineId: project.businessLineId,
+    operator,
+    operationTime,
+  };
+}
+
+function recordProjectOperation(project, operator, action, detail, operationTime = new Date()) {
+  const time = dateTimeString(operationTime);
+  project.updatedAt = time;
+  project.logs = [
+    { time, actor: operator, action, detail },
+    ...(Array.isArray(project.logs) ? project.logs : []),
+  ].slice(0, 100);
+  project.followUps = [
+    { time, user: operator, progress: detail, nextAction: project.nextAction || "待补充下一步动作" },
+    ...(Array.isArray(project.followUps) ? project.followUps : []),
+  ].slice(0, 50);
+}
+
+function startCurrentProjectNode(project, operator, operationTime = new Date()) {
+  const nodeName = project.currentNode || defaultNodeForStatus(project.status, project.businessLineId);
+  project.currentNode = nodeName;
+  project.status = statusForNodeName(nodeName, project.status);
+  project.nodes = mergeProjectNodes(project.nodes, nodeTransitionContext(project, operator, operationTime));
+  project.nodes = project.nodes.map((node) => {
+    if (node.name !== nodeName) return node;
+    return {
+      ...node,
+      status: node.status === "未开始" ? "进行中" : node.status,
+      startedAt: dateString(operationTime),
+      startedAtTime: dateTimeString(operationTime),
+      startedBy: operator,
+      note: `由 ${operator} 于 ${dateTimeString(operationTime)} 进入该节点。`,
+    };
+  });
+  recordProjectOperation(project, operator, "进入节点", `进入「${nodeName}」节点。`, operationTime);
+}
+
+function advanceProjectNode(project, operator, operationTime = new Date()) {
+  const nextNode = nextNodeForProject(project);
+  if (!nextNode) return false;
+  const previousNode = project.currentNode;
+  project.currentNode = nextNode;
+  project.status = statusForNodeName(nextNode, project.status);
+  project.nodes = mergeProjectNodes(project.nodes, nodeTransitionContext(project, operator, operationTime));
+  project.nodes = project.nodes.map((node) => {
+    if (node.name === previousNode) {
+      return {
+        ...node,
+        status: "已完成",
+        completedAt: dateString(operationTime),
+        completedAtTime: dateTimeString(operationTime),
+        completed: dateString(operationTime),
+        completedBy: operator,
+        note: `由 ${operator} 于 ${dateTimeString(operationTime)} 完成并推进到下一节点。`,
+      };
+    }
+    if (node.name === nextNode) {
+      return {
+        ...node,
+        status: "进行中",
+        startedAt: dateString(operationTime),
+        startedAtTime: dateTimeString(operationTime),
+        startedBy: operator,
+        completedAt: "",
+        completedAtTime: "",
+        completed: "",
+        completedBy: "",
+        note: `由 ${operator} 于 ${dateTimeString(operationTime)} 进入该节点。`,
+      };
+    }
+    return node;
+  });
+  recordProjectOperation(project, operator, "推进节点", `从「${previousNode}」进入「${nextNode}」节点。`, operationTime);
+  return true;
+}
+
+function completeProjectFromDrawer(project, operator, operationTime = new Date()) {
+  const previousNode = project.currentNode;
+  project.status = "已完成";
+  const nodeNames = workflowNodeNamesForBusinessLine(project.businessLineId);
+  project.currentNode = nodeNames[nodeNames.length - 1] || project.currentNode;
+  project.nodes = mergeProjectNodes(project.nodes, nodeTransitionContext(project, operator, operationTime));
+  project.nodes = project.nodes.map((node) => {
+    if (node.name !== previousNode && node.name !== project.currentNode) return node;
+    return {
+      ...node,
+      status: "已完成",
+      completedAt: dateString(operationTime),
+      completedAtTime: dateTimeString(operationTime),
+      completed: dateString(operationTime),
+      completedBy: operator,
+      note: `由 ${operator} 于 ${dateTimeString(operationTime)} 标记完成。`,
+    };
+  });
+  recordProjectOperation(project, operator, "标记完成", `项目在「${previousNode}」节点标记完成。`, operationTime);
+}
+
+async function handleDrawerAction(action) {
   if (!hasPermission("编辑项目状态")) return;
   const current = state.projects.find((item) => item.id === state.selectedProjectId);
   if (!current) return;
@@ -3041,36 +3233,24 @@ function handleDrawerAction(action) {
     openModal(current);
     return;
   }
+  const operator = currentUser().name || "后台用户";
+  const operationTime = new Date();
+  if (action === "start") {
+    startCurrentProjectNode(current, operator, operationTime);
+  }
+  if (action === "advance") {
+    advanceProjectNode(current, operator, operationTime);
+  }
   if (action === "pause") {
     current.status = current.status === "已暂停" ? "作者沟通中" : "已暂停";
-    current.updatedAt = dateTimeString(new Date());
-    current.nodes = mergeProjectNodes(current.nodes, {
-      startDate: current.startDate,
-      owner: current.owner,
-      status: current.status,
-      currentNode: current.currentNode,
-      reminderPerson: current.reminderPerson,
-      reminderDate: current.reminderDate,
-      blockedNode: current.status === "已暂停" ? current.currentNode : "",
-      businessLineId: current.businessLineId,
-    });
+    current.nodes = mergeProjectNodes(current.nodes, nodeTransitionContext(current, operator, operationTime));
+    recordProjectOperation(current, operator, current.status === "已暂停" ? "暂停项目" : "恢复项目", current.status === "已暂停" ? `暂停在「${current.currentNode}」节点。` : `恢复「${current.currentNode}」节点。`, operationTime);
   }
   if (action === "complete") {
-    current.status = "已完成";
-    const nodeNames = workflowNodeNamesForBusinessLine(current.businessLineId);
-    current.currentNode = nodeNames[nodeNames.length - 1] || current.currentNode;
-    current.updatedAt = dateTimeString(new Date());
-    current.nodes = mergeProjectNodes(current.nodes, {
-      startDate: current.startDate,
-      owner: current.owner,
-      status: current.status,
-      currentNode: current.currentNode,
-      reminderPerson: current.reminderPerson,
-      reminderDate: current.reminderDate,
-      businessLineId: current.businessLineId,
-    });
+    completeProjectFromDrawer(current, operator, operationTime);
   }
   saveProjects();
+  await flushRemoteSync();
   render();
 }
 
@@ -3794,7 +3974,7 @@ function attachEvents() {
 
   elements.drawerContent.addEventListener("click", (event) => {
     const button = event.target.closest("[data-drawer-action]");
-    if (button) handleDrawerAction(button.dataset.drawerAction);
+    if (button) void handleDrawerAction(button.dataset.drawerAction);
   });
 
   elements.drawerBackdrop.addEventListener("click", closeDrawer);
