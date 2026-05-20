@@ -66,6 +66,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
   for (const project of dueProjects) {
     const member = findMember(state, project.reminderPerson);
     const content = buildReminderMessage(project);
+    const actor = project.reminderRecordActor || "WorkPad 管家";
     const baseResult = {
       projectId: project.id,
       projectCode: project.code,
@@ -82,7 +83,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
       if (!dryRun) {
         appendPushLog(state, {
           content,
-          actor: "WorkPad 管家",
+          actor,
           receiver: project.reminderPerson,
           success: false,
           source: "到点提醒",
@@ -123,7 +124,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
       ].slice(0, 100);
       appendPushLog(state, {
         content,
-        actor: "WorkPad 管家",
+        actor,
         receiver: member.name,
         receiverUserId: member.wecomUserId,
         success: true,
@@ -139,7 +140,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
       project.reminderNotificationAttempts = Number(project.reminderNotificationAttempts || 0) + 1;
       appendPushLog(state, {
         content,
-        actor: "WorkPad 管家",
+        actor,
         receiver: member.name,
         receiverUserId: member.wecomUserId,
         success: false,
