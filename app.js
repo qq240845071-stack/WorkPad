@@ -1989,6 +1989,7 @@ function openAdminModal(mode, payload) {
         </div>
         <div class="modal-actions">
           <button type="button" class="button button-ghost" data-admin-close="true">取消</button>
+          ${member?.wecomUserId ? `<button type="button" class="button button-secondary" data-admin-unbind-wecom="${escapeHtml(member.id)}">企业微信账号解绑</button>` : ""}
           <button type="submit" class="button button-primary">保存人员</button>
         </div>
       </form>`;
@@ -2218,6 +2219,23 @@ async function deleteMember(memberId) {
   state.departments = normalizeDepartments(state.departments, state.teamMembers);
   saveSettings();
   await flushRemoteSync();
+  render();
+}
+
+async function unbindMemberWecom(memberId) {
+  if (!hasPermission("管理人员")) return;
+  const member = state.teamMembers.find((item) => item.id === memberId);
+  if (!member) return;
+  if (!String(member.wecomUserId || "").trim()) {
+    window.alert(`「${member.name}」当前没有绑定企业微信账号。`);
+    return;
+  }
+  const confirmed = window.confirm(`确定解绑「${member.name}」的企业微信账号吗？解绑后这个人将不能收到 WorkPad 企业微信提醒。`);
+  if (!confirmed) return;
+  member.wecomUserId = "";
+  saveSettings();
+  await flushRemoteSync();
+  closeAdminModal();
   render();
 }
 
@@ -2660,6 +2678,11 @@ function attachEvents() {
     await saveProjectFromForm();
   });
   elements.adminModalContent.addEventListener("click", (event) => {
+    const unbindButton = event.target.closest("[data-admin-unbind-wecom]");
+    if (unbindButton) {
+      void unbindMemberWecom(unbindButton.dataset.adminUnbindWecom);
+      return;
+    }
     if (event.target.closest("[data-admin-close]")) closeAdminModal();
   });
   elements.adminModalContent.addEventListener("submit", async (event) => {
