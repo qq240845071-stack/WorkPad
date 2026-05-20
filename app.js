@@ -2428,11 +2428,17 @@ async function resetMemberPassword(memberId) {
   if (!member) return;
   const confirmed = window.confirm(`确定重置「${member.name}」的登录密码吗？重置后会得到一个临时密码。`);
   if (!confirmed) return;
+  const temporaryPassword = window.prompt("请输入临时密码，至少 6 位。留空则使用系统默认临时密码。", "WorkPad@2026");
+  if (temporaryPassword === null) return;
+  if (temporaryPassword.trim() && temporaryPassword.trim().length < 6) {
+    window.alert("临时密码至少需要 6 位。");
+    return;
+  }
   try {
     const response = await fetch("/api/auth/reset-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId }),
+      body: JSON.stringify({ memberId, password: temporaryPassword.trim() }),
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.message || "重置密码失败。");
