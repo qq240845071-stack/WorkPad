@@ -1,58 +1,21 @@
 const { readStoredState, writeStoredState } = require("./store");
 const { findMember, sendAppTextMessage } = require("./wecom-service");
 const { appendPushLog } = require("./push-log");
+const {
+  normalizeProjectReminders,
+  parseChinaReminderDate,
+  shouldDispatchReminder,
+  syncProjectReminderFields,
+} = require("./reminders");
 
-const RETRY_INTERVAL_MS = 10 * 60 * 1000;
-
-function parseChinaReminderDate(value) {
-  const match = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  const [, year, month, day, hour, minute] = match;
-  return new Date(Date.UTC(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour) - 8,
-    Number(minute),
-    0,
-    0,
-  ));
-}
-
-function reminderKey(project) {
-  return [
-    project.id,
-    project.reminderPerson || "",
-    project.reminderDate || "",
-    project.nextAction || "",
-  ].join("|");
-}
-
-function shouldDispatchReminder(project, now) {
-  if (!project || project.status === "已完成") return false;
-  if (!project.reminderNotificationPending) return false;
-  if (project.reminderNotificationStatus === "sent") return false;
-  const dueAt = parseChinaReminderDate(project.reminderDate);
-  if (!dueAt || dueAt.getTime() > now.getTime()) return false;
-
-  const lastAttempt = project.reminderNotificationLastAttemptAt
-    ? new Date(project.reminderNotificationLastAttemptAt)
-    : null;
-  if (lastAttempt && Number.isFinite(lastAttempt.getTime()) && now.getTime() - lastAttempt.getTime() < RETRY_INTERVAL_MS) {
-    return false;
-  }
-
-  return true;
-}
-
-function buildReminderMessage(project) {
+function buildReminderMessage(project, reminder) {
   return [
     "【WorkPad 到点提醒】",
     `项目：${project.title}`,
     `编号：${project.code}`,
     `状态：${project.status} / ${project.currentNode}`,
-    `提醒时间：${project.reminderDate}`,
-    project.nextAction ? `事项：${project.nextAction}` : "",
+    `提醒时间：${reminder.date}`,
+    reminder.note ? `事项：${reminder.note}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -60,39 +23,49 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
   const snapshot = await readStoredState();
   const state = snapshot.state;
   const now = new Date();
-  const dueProjects = state.projects.filter((project) => shouldDispatchReminder(project, now));
+  const dueItems = state.projects.flatMap((project) => normalizeProjectReminders(project)
+    .map((reminder, index) => ({ project, reminder, reminderId: reminder.id, reminderIndex: index }))
+    .filter(({ reminder }) => shouldDispatchReminder(project, reminder, now)));
   const results = [];
 
-  for (const project of dueProjects) {
-    const member = findMember(state, project.reminderPerson);
-    const content = buildReminderMessage(project);
-    const actor = project.reminderRecordActor || "WorkPad 管家";
+  for (const item of dueItems) {
+    const { project } = item;
+    project.reminders = normalizeProjectReminders(project);
+    const reminder = project.reminders.find((entry) => entry.id === item.reminderId) || project.reminders[item.reminderIndex];
+    if (!reminder) continue;
+
+    const member = findMember(state, reminder.person);
+    const content = buildReminderMessage(project, reminder);
+    const actor = reminder.actor || project.reminderRecordActor || "WorkPad 管家";
     const baseResult = {
       projectId: project.id,
       projectCode: project.code,
       projectTitle: project.title,
-      reminderPerson: project.reminderPerson,
-      reminderDate: project.reminderDate,
+      reminderId: reminder.id,
+      reminderPerson: reminder.person,
+      reminderDate: reminder.date,
     };
 
     if (!member || !member.wecomUserId) {
-      project.reminderNotificationStatus = "failed";
-      project.reminderNotificationLastAttemptAt = now.toISOString();
-      project.reminderNotificationLastError = "提醒人还没有绑定企微账号 UserId。";
-      project.reminderNotificationAttempts = Number(project.reminderNotificationAttempts || 0) + 1;
+      reminder.status = "failed";
+      reminder.pending = true;
+      reminder.lastAttemptAt = now.toISOString();
+      reminder.lastError = "提醒人还没有绑定企微账号 UserId。";
+      reminder.attempts = Number(reminder.attempts || 0) + 1;
+      syncProjectReminderFields(project);
       if (!dryRun) {
         appendPushLog(state, {
           content,
           actor,
-          receiver: project.reminderPerson,
+          receiver: reminder.person,
           success: false,
           source: "到点提醒",
-          error: project.reminderNotificationLastError,
+          error: reminder.lastError,
           projectCode: project.code,
           projectTitle: project.title,
         });
       }
-      results.push({ ...baseResult, ok: false, skipped: true, error: project.reminderNotificationLastError });
+      results.push({ ...baseResult, ok: false, skipped: true, error: reminder.lastError });
       continue;
     }
 
@@ -106,22 +79,22 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
         toUser: member.wecomUserId,
         content,
       });
-      project.reminderNotificationPending = false;
-      project.reminderNotificationStatus = "sent";
-      project.reminderNotificationSentAt = now.toISOString();
-      project.reminderNotificationLastAttemptAt = now.toISOString();
-      project.reminderNotificationLastError = "";
-      project.reminderNotificationKey = project.reminderNotificationKey || reminderKey(project);
-      project.reminderNotificationAttempts = Number(project.reminderNotificationAttempts || 0) + 1;
+      reminder.pending = false;
+      reminder.status = "sent";
+      reminder.sentAt = now.toISOString();
+      reminder.lastAttemptAt = now.toISOString();
+      reminder.lastError = "";
+      reminder.attempts = Number(reminder.attempts || 0) + 1;
       project.logs = [
         {
-          time: project.reminderDate,
+          time: reminder.date,
           actor: "WorkPad 管家",
           action: "企业微信到点提醒",
-          detail: `已提醒 ${project.reminderPerson}：${project.nextAction || project.title}`,
+          detail: `已提醒 ${reminder.person}：${reminder.note || project.title}`,
         },
         ...(Array.isArray(project.logs) ? project.logs : []),
       ].slice(0, 100);
+      syncProjectReminderFields(project);
       appendPushLog(state, {
         content,
         actor,
@@ -134,10 +107,12 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
       });
       results.push({ ...baseResult, ok: true, toUser: member.wecomUserId });
     } catch (error) {
-      project.reminderNotificationStatus = "failed";
-      project.reminderNotificationLastAttemptAt = now.toISOString();
-      project.reminderNotificationLastError = error instanceof Error ? error.message : String(error);
-      project.reminderNotificationAttempts = Number(project.reminderNotificationAttempts || 0) + 1;
+      reminder.status = "failed";
+      reminder.pending = true;
+      reminder.lastAttemptAt = now.toISOString();
+      reminder.lastError = error instanceof Error ? error.message : String(error);
+      reminder.attempts = Number(reminder.attempts || 0) + 1;
+      syncProjectReminderFields(project);
       appendPushLog(state, {
         content,
         actor,
@@ -145,22 +120,22 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
         receiverUserId: member.wecomUserId,
         success: false,
         source: "到点提醒",
-        error: project.reminderNotificationLastError,
+        error: reminder.lastError,
         projectCode: project.code,
         projectTitle: project.title,
       });
-      results.push({ ...baseResult, ok: false, toUser: member.wecomUserId, error: project.reminderNotificationLastError });
+      results.push({ ...baseResult, ok: false, toUser: member.wecomUserId, error: reminder.lastError });
     }
   }
 
-  if (!dryRun && dueProjects.length) {
+  if (!dryRun && dueItems.length) {
     await writeStoredState(state);
   }
 
   return {
     ok: true,
     checkedAt: now.toISOString(),
-    dueCount: dueProjects.length,
+    dueCount: dueItems.length,
     results,
   };
 }

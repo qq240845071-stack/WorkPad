@@ -837,6 +837,142 @@ function reminderTimeText(value) {
   return dateTimeString(value);
 }
 
+function textValue(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeReminderDateValue(value, fallback = "") {
+  const raw = textValue(value || fallback);
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return `${raw} 09:00`;
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})/);
+  if (match) return `${match[1]} ${match[2].padStart(2, "0")}:${match[3]}`;
+  const parsed = parseDate(raw);
+  return Number.isNaN(parsed.getTime()) ? raw : dateTimeString(parsed);
+}
+
+function reminderUid(projectId = "project") {
+  return `reminder-${projectId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeReminderItem(item, project = {}, index = 0) {
+  const source = item || {};
+  const status = textValue(source.status || source.reminderNotificationStatus || "pending") || "pending";
+  const pending = source.pending === false || ["sent", "completed", "cancelled"].includes(status) ? false : true;
+  return {
+    id: textValue(source.id || reminderUid(project.id || `project-${index}`)),
+    person: textValue(source.person || source.reminderPerson || source.memberName || project.reminderPerson || project.owner || "未分配"),
+    date: normalizeReminderDateValue(source.date || source.reminderDate || project.reminderDate || project.planFinish),
+    note: textValue(source.note || source.nextAction || project.nextAction || "待补充提醒内容"),
+    status,
+    pending,
+    source: textValue(source.source || project.reminderRecordSource || "手动提醒"),
+    actor: textValue(source.actor || project.reminderRecordActor || project.owner || "WorkPad 管家"),
+    recordAt: textValue(source.recordAt || project.reminderRecordAt || ""),
+    createdAt: textValue(source.createdAt || project.reminderNotificationCreatedAt || new Date().toISOString()),
+    sentAt: textValue(source.sentAt || project.reminderNotificationSentAt || ""),
+    lastAttemptAt: textValue(source.lastAttemptAt || project.reminderNotificationLastAttemptAt || ""),
+    lastError: textValue(source.lastError || project.reminderNotificationLastError || ""),
+    attempts: Number(source.attempts ?? source.reminderNotificationAttempts ?? 0) || 0,
+  };
+}
+
+function normalizeProjectReminders(project = {}) {
+  if (Array.isArray(project.reminders)) {
+    return project.reminders
+      .map((item, index) => normalizeReminderItem(item, project, index))
+      .sort((left, right) => String(left.date).localeCompare(String(right.date)));
+  }
+  if (!project.reminderPerson && !project.reminderDate && !project.nextAction) return [];
+  return [normalizeReminderItem({
+    id: project.reminderNotificationKey || reminderUid(project.id || "legacy"),
+    person: project.reminderPerson,
+    date: project.reminderDate,
+    note: project.nextAction,
+    status: project.reminderNotificationStatus || "pending",
+    pending: project.reminderNotificationPending,
+    createdAt: project.reminderNotificationCreatedAt,
+    sentAt: project.reminderNotificationSentAt,
+    lastAttemptAt: project.reminderNotificationLastAttemptAt,
+    lastError: project.reminderNotificationLastError,
+    attempts: project.reminderNotificationAttempts,
+    source: project.reminderRecordSource || "历史提醒",
+    actor: project.reminderRecordActor || project.owner,
+    recordAt: project.reminderRecordAt,
+  }, project)];
+}
+
+function activeProjectReminders(project) {
+  return normalizeProjectReminders(project).filter((item) => item.pending && !["sent", "completed", "cancelled"].includes(item.status));
+}
+
+function primaryProjectReminder(project) {
+  const active = activeProjectReminders(project);
+  const reminders = active.length ? active : normalizeProjectReminders(project);
+  return reminders[0] || null;
+}
+
+function syncProjectReminderFields(project) {
+  project.reminders = normalizeProjectReminders(project);
+  const primary = primaryProjectReminder(project);
+  if (!primary) return project;
+  project.reminderPerson = primary.person;
+  project.reminderDate = primary.date;
+  project.nextAction = primary.note || project.nextAction;
+  project.reminderNotificationPending = primary.pending;
+  project.reminderNotificationStatus = primary.status;
+  project.reminderNotificationCreatedAt = primary.createdAt;
+  project.reminderNotificationSentAt = primary.sentAt;
+  project.reminderNotificationLastError = primary.lastError;
+  project.reminderNotificationLastAttemptAt = primary.lastAttemptAt;
+  project.reminderNotificationAttempts = primary.attempts;
+  project.reminderNotificationKey = primary.id;
+  project.reminderRecordActor = primary.actor;
+  project.reminderRecordAt = primary.recordAt;
+  project.reminderRecordSource = primary.source;
+  return project;
+}
+
+function appendProjectReminder(project, input) {
+  const reminder = normalizeReminderItem({
+    ...(input || {}),
+    id: input?.id || reminderUid(project.id || "project"),
+    status: input?.status || "pending",
+    pending: input?.pending ?? true,
+    createdAt: input?.createdAt || new Date().toISOString(),
+  }, project);
+  project.reminders = [...normalizeProjectReminders(project), reminder];
+  syncProjectReminderFields(project);
+  return reminder;
+}
+
+function reminderItemStatus(reminder) {
+  if (reminder.status === "sent") return "已推送";
+  if (reminder.status === "failed") return "推送失败";
+  if (reminder.status === "cancelled") return "已取消";
+  return dateString(reminder.date) === dateString(new Date()) ? "今日提醒" : "待提醒";
+}
+
+function reminderMatchesMember(project, memberName) {
+  return normalizeProjectReminders(project).some((reminder) => reminder.person === memberName);
+}
+
+function todayReminderItems(projects, memberName = "") {
+  return projects.flatMap((project) => activeProjectReminders(project)
+    .filter((reminder) => project.status !== "已完成" && dateString(reminder.date) === dateString(new Date()))
+    .filter((reminder) => !memberName || reminder.person === memberName)
+    .map((reminder) => ({ project, reminder })));
+}
+
+function projectMatchesReminderFilter(project, filter) {
+  if (filter === "全部") return true;
+  if (filter === "今日提醒") {
+    return activeProjectReminders(project).some((reminder) => dateString(reminder.date) === dateString(new Date()));
+  }
+  if (filter === "待提醒") return activeProjectReminders(project).length > 0;
+  return reminderStatus(project) === filter;
+}
+
 function diffDays(later, earlier) {
   return Math.floor((later.getTime() - earlier.getTime()) / (1000 * 60 * 60 * 24));
 }
@@ -945,6 +1081,23 @@ function createSeedProject(row) {
     riskNote,
     reminderPerson,
     reminderDate: dateTimeString(reminderDate),
+    reminders: [
+      {
+        id: `reminder-demo-${code}-1`,
+        person: reminderPerson,
+        date: dateTimeString(reminderDate),
+        note: nextAction,
+        status: "pending",
+        pending: true,
+        source: "演示数据",
+        actor: owner,
+        createdAt: new Date().toISOString(),
+        sentAt: "",
+        lastAttemptAt: "",
+        lastError: "",
+        attempts: 0,
+      },
+    ],
     nodes: buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode, DEFAULT_BUSINESS_LINE_ID),
     followUps: [
       { time: dateTimeString(addDays(updatedAt, -3)), user: owner, progress: summary, nextAction },
@@ -978,13 +1131,23 @@ function normalizeProject(project) {
   const workflowNodeNames = workflowNodeNamesForBusinessLine(businessLineId);
   const currentNode = workflowNodeNames.includes(project.currentNode) ? project.currentNode : defaultNodeForStatus(status, businessLineId);
   const owner = project.owner || "未分配";
-  const reminderPerson = project.reminderPerson || owner;
-  const reminderDate = project.reminderDate || project.planFinish || dateString(new Date());
+  const nextAction = project.nextAction || "待补充下一步动作";
+  const reminderBase = {
+    ...project,
+    owner,
+    nextAction,
+    reminderPerson: project.reminderPerson || owner,
+    reminderDate: project.reminderDate || project.planFinish || dateString(new Date()),
+  };
+  const reminders = normalizeProjectReminders(reminderBase);
+  const primaryReminder = primaryProjectReminder({ ...reminderBase, reminders });
+  const reminderPerson = primaryReminder?.person || reminderBase.reminderPerson;
+  const reminderDate = primaryReminder?.date || reminderBase.reminderDate;
   const startDate = parseDate(project.startDate || new Date());
   const normalizedNodes = Array.isArray(project.nodes) && project.nodes.length
     ? project.nodes.map((node) => ({ ...node, reminderDate: dateTimeString(node.reminderDate || node.planned || reminderDate) }))
     : buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, "", businessLineId);
-  return {
+  return syncProjectReminderFields({
     ...project,
     businessLineId,
     businessLineName: businessLineName(businessLineId),
@@ -993,8 +1156,9 @@ function normalizeProject(project) {
     owner,
     partner: project.partner || "",
     summary: project.summary || `${project.title || "项目"} 的流程记录`,
-    nextAction: project.nextAction || "待补充下一步动作",
+    nextAction,
     riskNote: project.riskNote || "暂无特别风险说明。",
+    reminders,
     reminderPerson,
     reminderDate: dateTimeString(reminderDate),
     startDate: dateString(startDate),
@@ -1004,7 +1168,7 @@ function normalizeProject(project) {
     nodes: normalizedNodes,
     followUps: Array.isArray(project.followUps) && project.followUps.length ? project.followUps : [{ time: dateTimeString(new Date()), user: owner, progress: project.summary || "创建项目", nextAction: project.nextAction || "待补充下一步动作" }],
     logs: Array.isArray(project.logs) && project.logs.length ? project.logs : [{ time: dateTimeString(new Date()), actor: owner, action: "创建项目", detail: "补齐基础信息。" }],
-  };
+  });
 }
 
 function seedProjects() {
@@ -1034,7 +1198,30 @@ function saveProjects() {
 
 function reminderStatus(project) {
   if (project.status === "已完成") return "已完成";
-  return dateString(project.reminderDate) === dateString(new Date()) ? "今日提醒" : "待提醒";
+  return activeProjectReminders(project).some((reminder) => dateString(reminder.date) === dateString(new Date())) ? "今日提醒" : "待提醒";
+}
+
+function reminderListHtml(project, options = {}) {
+  const { compact = false, emptyText = "" } = options;
+  const reminders = normalizeProjectReminders(project);
+  const shown = compact ? reminders.slice(0, 3) : reminders;
+  if (!shown.length) {
+    return emptyText ? `<div class="reminder-stack"><div class="reminder-empty">${escapeHtml(emptyText)}</div></div>` : "";
+  }
+  const moreCount = Math.max(reminders.length - shown.length, 0);
+  return `
+    <div class="reminder-stack ${compact ? "is-compact" : ""}">
+      ${shown.map((reminder) => `
+        <div class="reminder-item">
+          <div>
+            <strong>${escapeHtml(reminder.person)}</strong>
+            <span>${escapeHtml(reminderTimeText(reminder.date))}</span>
+          </div>
+          <p>${escapeHtml(reminder.note || "待补充提醒内容")}</p>
+          <em>${escapeHtml(reminderItemStatus(reminder))}</em>
+        </div>`).join("")}
+      ${moreCount ? `<div class="reminder-more">还有 ${moreCount} 条提醒</div>` : ""}
+    </div>`;
 }
 
 function reminderRecordNotice(project) {
@@ -1045,12 +1232,15 @@ function reminderRecordNotice(project) {
 }
 
 function reminderDispatchNotice(project) {
-  if (project.reminderNotificationStatus === "sent") return "到点提醒已通过企业微信推送";
-  if (project.reminderNotificationStatus === "failed") {
-    const reason = String(project.reminderNotificationLastError || "等待下次重试").split("\n")[0];
+  const reminders = normalizeProjectReminders(project);
+  const failed = reminders.find((item) => item.status === "failed");
+  const queued = activeProjectReminders(project).filter((item) => item.status !== "failed");
+  if (failed) {
+    const reason = String(failed.lastError || "等待下次重试").split("\n")[0];
     return `到点推送失败：${reason}`;
   }
-  if (project.reminderNotificationPending) return "已进入到点推送队列";
+  if (queued.length) return `${queued.length} 条提醒已进入到点推送队列`;
+  if (reminders.some((item) => item.status === "sent")) return "到点提醒已通过企业微信推送";
   return "";
 }
 
@@ -1120,7 +1310,7 @@ function hasPermission(label, user = currentUser()) {
 
 function visibleProjects(user = currentUser()) {
   if (hasPermission("查看全部项目", user)) return state.projects;
-  return state.projects.filter((project) => project.owner === user.name || project.reminderPerson === user.name);
+  return state.projects.filter((project) => project.owner === user.name || reminderMatchesMember(project, user.name));
 }
 
 function canAccessAdmin(user = currentUser()) {
@@ -1141,7 +1331,7 @@ function filteredProjects() {
     const matchesOwner = state.filters.owner === "全部" || project.owner === state.filters.owner;
     const matchesStatus = state.filters.status === "全部" || project.status === state.filters.status;
     const matchesRisk = state.filters.risk === "全部" || risk.level === state.filters.risk;
-    const matchesReminder = state.filters.reminder === "全部" || reminderStatus(project) === state.filters.reminder;
+    const matchesReminder = projectMatchesReminderFilter(project, state.filters.reminder);
     const matchesUpdate = state.filters.update === "全部" ? true : state.filters.update === "7天未更新" ? risk.staleDays >= 7 : risk.staleDays <= 3;
     return matchesSearch && matchesOwner && matchesStatus && matchesRisk && matchesReminder && matchesUpdate;
   });
@@ -1189,7 +1379,7 @@ function syncFiltersAndForm() {
 function renderNoticeBar() {
   const user = currentUser();
   const myProjects = state.projects.filter((item) => item.owner === user.name && !["已完成", "已暂停"].includes(item.status)).length;
-  const myReminders = state.projects.filter((item) => item.reminderPerson === user.name && reminderStatus(item) === "今日提醒").length;
+  const myReminders = todayReminderItems(state.projects, user.name).length;
   const highRisk = state.projects.filter((item) => getProjectRisk(item).level === "高").length;
   const adminHint = canAccessAdmin(user) ? "可进入后台管理配置" : "当前身份只开放业务看板操作";
   elements.noticeBar.innerHTML = `
@@ -1211,7 +1401,7 @@ function renderSummary(projects) {
     const dueIn = diffDays(parseDate(item.planFinish), new Date());
     return dueIn >= 0 && dueIn <= 7 && item.status !== "已完成";
   }).length;
-  const todayReminders = projects.filter((item) => reminderStatus(item) === "今日提醒").length;
+  const todayReminders = todayReminderItems(projects).length;
   const cards = [
     ["当前项目总数", String(projects.length), "含在途、暂停和已完成项目", "#a4482f"],
     ["在途项目", String(active), "不含已完成和已暂停", "#23404d"],
@@ -1239,7 +1429,7 @@ function renderUrgentList(projects) {
           <span class="${riskChip(risk.level)}">${escapeHtml(risk.level)}风险</span>
         </div>
         <p class="project-author">${escapeHtml(project.owner)} · ${escapeHtml(project.status)} · ${escapeHtml(project.currentNode)}</p>
-        <p class="mini-text">提醒：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderTimeText(project.reminderDate))} · ${escapeHtml(reminderStatus(project))}</p>
+        ${reminderListHtml(project, { compact: true })}
         ${reminderRecordHtml(project)}
         <p class="mini-text">${escapeHtml(risk.reasons.join(" / "))}</p>
       </button>
@@ -1281,8 +1471,8 @@ function renderBoard(projects) {
                     <div>业务线：${escapeHtml(businessLineName(project.businessLineId))}</div>
                     <div>合作方：${escapeHtml(project.partner || "未设置")}</div>
                     <div>当前节点：${escapeHtml(project.currentNode)}</div>
-                    <div>提醒：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderTimeText(project.reminderDate))} · ${escapeHtml(reminderStatus(project))}</div>
                   </div>
+                  ${reminderListHtml(project, { compact: true })}
                   ${reminderRecordHtml(project)}
                 </button>
               </article>`;
@@ -1300,7 +1490,7 @@ function renderPersonBoard(projects) {
   elements.personBoardGrid.innerHTML = members.map((member) => {
     const myProjects = projects.filter((item) => item.owner === member.name && !["已完成"].includes(item.status));
     const highRisk = myProjects.filter((item) => getProjectRisk(item).level === "高").length;
-    const reminders = scopedProjects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length;
+    const reminders = todayReminderItems(scopedProjects, member.name).length;
     return `
       <article class="person-card">
         <div class="person-card-top">
@@ -1367,7 +1557,7 @@ function renderAdminNav() {
 
 function buildAiContext() {
   const highRisk = state.projects.filter((project) => getProjectRisk(project).level === "高");
-  const reminders = state.projects.filter((project) => reminderStatus(project) === "今日提醒");
+  const reminders = todayReminderItems(state.projects);
   const active = state.projects.filter((project) => !["已完成", "已暂停"].includes(project.status));
   return [
     `当前用户：${currentUser().name} / ${currentUser().role}`,
@@ -1783,7 +1973,7 @@ function renderAdminContent() {
                   <td>${wecomBindingBadge(member)}</td>
                   <td><span class="binding-badge ${member.passwordReady ? "is-bound" : "is-unbound"}">${member.passwordReady ? "已设置" : "待重置"}</span></td>
                   <td>${state.projects.filter((item) => item.owner === member.name && !["已完成", "已暂停"].includes(item.status)).length}</td>
-                  <td>${state.projects.filter((item) => item.reminderPerson === member.name && reminderStatus(item) === "今日提醒").length}</td>
+                  <td>${todayReminderItems(state.projects, member.name).length}</td>
                   <td>
                     <div class="table-action-group">
                       <button type="button" class="table-action" data-admin-action="edit-user" data-member-id="${escapeHtml(member.id)}" ${canManageUsers ? "" : "disabled"}>编辑</button>
@@ -2051,6 +2241,7 @@ function renderDrawer() {
   }
   const risk = getProjectRisk(project);
   const canEditProject = hasPermission("编辑项目状态");
+  const reminders = normalizeProjectReminders(project);
   elements.drawerContent.innerHTML = `
     <div class="drawer-content">
       <header class="drawer-header">
@@ -2072,9 +2263,10 @@ function renderDrawer() {
           <div class="overview-item"><span>业务线</span><strong>${escapeHtml(businessLineName(project.businessLineId))}</strong></div>
           <div class="overview-item"><span>合作方</span><strong>${escapeHtml(project.partner || "未设置")}</strong></div>
           <div class="overview-item"><span>当前节点</span><strong>${escapeHtml(project.currentNode)}</strong></div>
-          <div class="overview-item"><span>提醒人</span><strong>${escapeHtml(project.reminderPerson)}</strong></div>
-          <div class="overview-item"><span>提醒时间</span><strong>${escapeHtml(reminderTimeText(project.reminderDate))}</strong></div>
+          <div class="overview-item"><span>提醒任务</span><strong>${reminders.length} 条</strong></div>
+          <div class="overview-item"><span>今日提醒</span><strong>${todayReminderItems([project]).length} 条</strong></div>
         </div>
+        ${reminderListHtml(project, { emptyText: "暂无提醒任务" })}
         ${reminderRecordHtml(project)}
       </section>
       <section class="detail-card">
@@ -2119,8 +2311,9 @@ function openModal(project) {
   elements.formSummary.value = current ? current.summary : "";
   elements.formNextAction.value = current ? current.nextAction : "";
   elements.formRiskNote.value = current ? current.riskNote : "";
-  elements.formReminderPerson.value = current ? current.reminderPerson : currentUser().name;
-  elements.formReminderDate.value = current ? dateTimeInputValue(current.reminderDate) : dateTimeInputValue(new Date());
+  const currentReminder = current ? primaryProjectReminder(current) : null;
+  elements.formReminderPerson.value = currentReminder?.person || (current ? current.reminderPerson : currentUser().name);
+  elements.formReminderDate.value = currentReminder?.date ? dateTimeInputValue(currentReminder.date) : dateTimeInputValue(new Date());
   elements.projectModal.classList.add("is-open");
   elements.projectModal.setAttribute("aria-hidden", "false");
 }
@@ -2265,9 +2458,13 @@ async function saveProjectFromForm() {
   const reminderDate = dateTimeString(elements.formReminderDate.value || new Date());
   const reminderPerson = elements.formReminderPerson.value.trim() || owner;
   const projectId = existing ? existing.id : uid();
-  const reminderKey = [projectId, reminderPerson, reminderDate, elements.formNextAction.value.trim() || ""].join("|");
-  const shouldQueueReminder = !existing || existing.reminderNotificationKey !== reminderKey;
+  const reminderNote = elements.formNextAction.value.trim() || "待补充下一步动作";
+  const baseReminders = existing ? normalizeProjectReminders(existing) : [];
+  const hasSameReminder = baseReminders.some((item) => {
+    return item.person === reminderPerson && item.date === reminderDate && item.note === reminderNote && item.status !== "cancelled";
+  });
   const project = normalizeProject({
+    ...(existing || {}),
     id: projectId,
     source: existing ? existing.source : "custom",
     businessLineId,
@@ -2284,21 +2481,28 @@ async function saveProjectFromForm() {
     updatedAt: dateTimeString(now),
     createdAt: existing ? existing.createdAt : dateTimeString(now),
     summary: elements.formSummary.value.trim(),
-    nextAction: elements.formNextAction.value.trim(),
+    nextAction: reminderNote,
     riskNote: elements.formRiskNote.value.trim(),
+    reminders: baseReminders,
     reminderPerson,
     reminderDate,
-    reminderNotificationPending: shouldQueueReminder ? true : Boolean(existing?.reminderNotificationPending),
-    reminderNotificationStatus: shouldQueueReminder ? "pending" : existing?.reminderNotificationStatus || "",
-    reminderNotificationCreatedAt: shouldQueueReminder ? now.toISOString() : existing?.reminderNotificationCreatedAt || "",
-    reminderNotificationSentAt: shouldQueueReminder ? "" : existing?.reminderNotificationSentAt || "",
-    reminderNotificationLastError: shouldQueueReminder ? "" : existing?.reminderNotificationLastError || "",
-    reminderNotificationKey: reminderKey,
-    reminderNotificationAttempts: shouldQueueReminder ? 0 : Number(existing?.reminderNotificationAttempts || 0),
     nodes: buildNodes(parseDate(existing ? existing.startDate : now), owner, status, currentNode, reminderPerson, reminderDate, status === "已暂停" ? currentNode : "", businessLineId),
-    followUps: [{ time: dateTimeString(now), user: owner, progress: existing ? "更新了项目信息" : "创建了项目", nextAction: elements.formNextAction.value.trim() || "待补充下一步动作" }, ...(existing?.followUps || [])],
+    followUps: [{ time: dateTimeString(now), user: owner, progress: existing ? "更新了项目信息" : "创建了项目", nextAction: reminderNote }, ...(existing?.followUps || [])],
     logs: [{ time: dateTimeString(now), actor: owner, action: existing ? "编辑项目" : "创建项目", detail: `状态为「${status}」，当前节点为「${currentNode}」。` }, ...(existing?.logs || [])],
   });
+  if (!hasSameReminder) {
+    appendProjectReminder(project, {
+      person: reminderPerson,
+      date: reminderDate,
+      note: reminderNote,
+      actor: owner,
+      source: existing ? "后台编辑" : "后台创建",
+      recordAt: dateTimeString(now),
+      createdAt: now.toISOString(),
+    });
+  } else {
+    syncProjectReminderFields(project);
+  }
   state.projects = existing ? state.projects.map((item) => (item.id === project.id ? project : item)) : [project, ...state.projects];
   saveProjects();
   await flushRemoteSync();
@@ -2337,10 +2541,14 @@ function handleDrawerAction(action) {
 }
 
 function renameMemberAcrossProjects(previousName, nextName) {
-  state.projects = state.projects.map((project) => ({
+  state.projects = state.projects.map((project) => syncProjectReminderFields({
     ...project,
     owner: project.owner === previousName ? nextName : project.owner,
     reminderPerson: project.reminderPerson === previousName ? nextName : project.reminderPerson,
+    reminders: normalizeProjectReminders(project).map((reminder) => ({
+      ...reminder,
+      person: reminder.person === previousName ? nextName : reminder.person,
+    })),
     nodes: project.nodes.map((node) => ({
       ...node,
       owner: node.owner === previousName ? nextName : node.owner,
@@ -2393,7 +2601,7 @@ async function deleteMember(memberId) {
     window.alert("至少需要保留 1 名人员。");
     return;
   }
-  const activeProjects = state.projects.filter((project) => project.owner === member.name || project.reminderPerson === member.name).length;
+  const activeProjects = state.projects.filter((project) => project.owner === member.name || reminderMatchesMember(project, member.name)).length;
   const confirmed = window.confirm(`确定删除人员「${member.name}」吗？${activeProjects ? "相关订单会改为“未分配”，不会删除订单。" : ""}`);
   if (!confirmed) return;
   state.teamMembers = state.teamMembers.filter((item) => item.id !== memberId);

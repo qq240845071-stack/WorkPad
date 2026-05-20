@@ -11,6 +11,7 @@ const {
   DEFAULT_BUSINESS_LINE_ID,
   ROLE_PERMISSION_ROWS,
 } = require("./demo-state");
+const { normalizeProjectReminders, syncProjectReminderFields } = require("./reminders");
 
 const BLOB_PATHNAME = "workpad/state.json";
 
@@ -177,15 +178,19 @@ function normalizeReminderDate(value, fallback) {
 }
 
 function normalizeProjects(projects) {
-  return projects.map((project) => ({
-    ...project,
-    businessLineId: project.businessLineId || DEFAULT_BUSINESS_LINE_ID,
-    businessLineName: project.businessLineName || "出版类业务线",
-    reminderDate: normalizeReminderDate(project.reminderDate, project.planFinish),
-    nodes: Array.isArray(project.nodes)
-      ? project.nodes.map((node) => ({ ...node, reminderDate: normalizeReminderDate(node.reminderDate, node.planned) }))
-      : project.nodes,
-  }));
+  return projects.map((project) => {
+    const normalized = {
+      ...project,
+      businessLineId: project.businessLineId || DEFAULT_BUSINESS_LINE_ID,
+      businessLineName: project.businessLineName || "出版类业务线",
+      reminderDate: normalizeReminderDate(project.reminderDate, project.planFinish),
+      reminders: normalizeProjectReminders(project),
+      nodes: Array.isArray(project.nodes)
+        ? project.nodes.map((node) => ({ ...node, reminderDate: normalizeReminderDate(node.reminderDate, node.planned) }))
+        : project.nodes,
+    };
+    return syncProjectReminderFields(normalized);
+  });
 }
 
 function normalizePushLogs(pushLogs) {

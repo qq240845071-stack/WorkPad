@@ -858,6 +858,51 @@ body::before {
   margin-top: 14px;
 }
 
+.reminder-stack {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.reminder-stack.is-compact {
+  gap: 8px;
+}
+
+.reminder-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(105, 116, 67, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 250, 241, 0.72);
+  font-size: 13px;
+}
+
+.reminder-item div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.reminder-item strong {
+  color: var(--ink);
+}
+
+.reminder-item p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.reminder-item em,
+.reminder-more,
+.reminder-empty {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
 .reminder-record-note {
   display: grid;
   gap: 6px;

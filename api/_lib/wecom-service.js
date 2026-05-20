@@ -1,6 +1,7 @@
 const { readStoredState, writeStoredState } = require("./store");
 const { getConfig } = require("./wecom-crypto");
 const { createAudioTranscription, createChatCompletion } = require("./ai-client");
+const { appendProjectReminder, normalizeProjectReminders } = require("./reminders");
 
 function nowDate() {
   return new Date();
@@ -144,14 +145,14 @@ async function requestWecomProxyMedia(message) {
 }
 
 function projectDigest(project) {
+  const reminders = normalizeProjectReminders(project).filter((item) => item.status !== "sent").slice(0, 6);
   return [
     `《${project.title}》`,
     `编号：${project.code}`,
     `状态：${project.status}`,
     `节点：${project.currentNode}`,
     `负责人：${project.owner}`,
-    `提醒人：${project.reminderPerson}`,
-    `提醒时间：${project.reminderDate}`,
+    reminders.length ? `提醒：${reminders.map((item) => `${item.person} ${item.date} ${item.note}`).join("；")}` : `提醒人：${project.reminderPerson}`,
     `下一步：${project.nextAction}`,
   ].join("\n");
 }
@@ -183,27 +184,30 @@ function updateProjectFollowUp(project, actor, progress, nextAction, detailActio
   ].slice(0, 100);
 }
 
-function buildReminderText(project, note) {
+function buildReminderText(project, reminder) {
   return [
     "已记录新的提醒任务：",
     `项目：${project.title}`,
     `状态：${project.status} / ${project.currentNode}`,
-    `提醒人：${project.reminderPerson}`,
-    `提醒时间：${project.reminderDate}`,
-    note ? `说明：${note}` : "",
+    `提醒人：${reminder.person}`,
+    `提醒时间：${reminder.date}`,
+    reminder.note ? `说明：${reminder.note}` : "",
   ].filter(Boolean).join("\n");
 }
 
-function buildReminderRecordNotice(actor, member, project, note) {
-  return `${actor} 已通过企业微信记录提醒：${member.name} · ${project.reminderDate} · ${note}`;
+function buildReminderRecordNotice(actor, member, reminder) {
+  return `${actor} 已通过企业微信记录提醒：${member.name} · ${reminder.date} · ${reminder.note}`;
 }
 
 function myRemindersText(state, sender) {
   const member = findMember(state, sender) || findMember(state, actorNameFromMessage(state, sender));
   if (!member) return "当前企微账号还没有在 WorkPad 人员表里建立映射，请先在后台补充企微账号 UserId。";
-  const list = state.projects.filter((item) => item.reminderPerson === member.name && item.status !== "已完成").slice(0, 5);
+  const list = state.projects.flatMap((project) => normalizeProjectReminders(project)
+    .filter((reminder) => reminder.person === member.name && reminder.status !== "sent" && project.status !== "已完成")
+    .map((reminder) => ({ project, reminder })))
+    .slice(0, 8);
   if (!list.length) return "你当前没有待处理提醒。";
-  return ["你当前的待提醒项目：", ...list.map((project) => `- ${project.code}《${project.title}》 ${project.status}/${project.currentNode}，提醒时间 ${project.reminderDate}`)].join("\n");
+  return ["你当前的待提醒项目：", ...list.map(({ project, reminder }) => `- ${project.code}《${project.title}》 ${project.status}/${project.currentNode}，提醒时间 ${reminder.date}，事项：${reminder.note}`)].join("\n");
 }
 
 function bindMemberText(state, sender, memberKeyword) {
@@ -584,66 +588,65 @@ async function handleIncomingMessage(message) {
 
   if (command.type === "unknown" || command.type === "empty") {
     const heardText = message.MsgType === "voice" ? `\n我听到的是：${content}` : "";
-    const reason = parseError ? `\n自然语言解析暂时不可用：${parseError}` : command.reason ? `\n原因：${command.reason}` : "";
-    return saveWithReply(`没有识别到可执行指令。你可以发送“帮助”查看可用命令，或直接说：明天下午三点提醒张莹跟进 BK-2026-005 合同回签。${heardText}${reason}`);
+    const reason = parseError ? `自然语言解析暂时不可用：${parseError}` : command.reason || "没有识别到可执行指令。";
+    return saveWithReply(`您发布的命令不成功。\n原因：${reason}\n你可以发送“帮助”查看可用命令，或直接说：明天下午三点提醒张莹跟进 BK-2026-005 合同回签。${heardText}`);
   }
 
   if (command.type === "my-reminders") {
-    return saveWithReply(myRemindersText(state, message.FromUserName));
+    const replyText = myRemindersText(state, message.FromUserName);
+    const ok = !replyText.includes("还没有在 WorkPad 人员表里建立映射");
+    return saveWithReply(ok ? `您发布的我的提醒命令成功。\n\n${replyText}` : `您发布的我的提醒命令不成功。\n原因：${replyText}`);
   }
 
   if (command.type === "bind") {
     const replyText = bindMemberText(state, message.FromUserName, command.memberKeyword);
-    return saveWithReply(replyText);
+    const ok = !replyText.includes("没有找到人员");
+    return saveWithReply(ok ? `您发布的绑定命令成功。\n${replyText}` : `您发布的绑定命令不成功。\n原因：${replyText}`);
   }
 
   if (command.type === "view") {
     const keyword = command.keyword || command.projectKeyword;
     const project = findProject(state, keyword);
-    if (!project) return saveWithReply(`没有找到项目「${keyword}」，可以直接发项目编号试试。`);
-    return saveWithReply(projectDigest(project));
+    if (!project) return saveWithReply(`您发布的查看命令不成功。\n原因：没有找到项目「${keyword}」，可以直接发项目编号试试。`);
+    return saveWithReply(`您发布的查看命令成功。\n\n${projectDigest(project)}`);
   }
 
   if (command.type === "record") {
     const project = findProject(state, command.projectKeyword);
     if (!project) {
-      return saveWithReply(`没有找到项目「${command.projectKeyword}」，这次记录没有写入。`);
+      return saveWithReply(`您发布的记录命令不成功。\n原因：没有找到项目「${command.projectKeyword}」。`);
     }
     updateProjectFollowUp(project, actor, command.note, command.note, "企业微信记录");
-    return saveWithReply(`已记录到《${project.title}》。\n当前下一步：${project.nextAction}`, { changedProject: project });
+    return saveWithReply(`您发布的记录命令成功。\n已记录到《${project.title}》。\n当前下一步：${project.nextAction}`, { changedProject: project });
   }
 
   if (command.type === "remind") {
     if (command.error) {
       const missingNote = command.error === "missing-note" ? "\n另外需要补充提醒内容，比如“催合同回签”。" : "";
-      return saveWithReply(`${reminderFormatTip()}${missingNote}`);
+      return saveWithReply(`您发布的提醒命令不成功。\n原因：提醒格式不完整，需要包含提醒人、项目、精确到分钟的时间和提醒内容。\n${reminderFormatTip()}${missingNote}`);
     }
     const member = findMember(state, command.memberKeyword);
     const project = findProject(state, command.projectKeyword);
     if (!member) {
-      return saveWithReply(`没有找到人员「${command.memberKeyword}」，请先在后台人员录入里补企微账号。`);
+      return saveWithReply(`您发布的提醒命令不成功。\n原因：没有找到人员「${command.memberKeyword}」，请先确认后台人员名称一致。`);
     }
     if (!project) {
-      return saveWithReply(`没有找到项目「${command.projectKeyword}」，这次提醒没有写入。`);
+      return saveWithReply(`您发布的提醒命令不成功。\n原因：没有找到项目「${command.projectKeyword}」，这次提醒没有写入。`);
     }
-    project.reminderPerson = member.name;
-    project.reminderDate = command.reminderDate;
+    const reminder = appendProjectReminder(project, {
+      person: member.name,
+      date: command.reminderDate,
+      note: command.note,
+      actor,
+      source: "企业微信",
+      recordAt: dateTimeString(nowDate()),
+    });
     project.nextAction = command.note || project.nextAction;
-    project.reminderNotificationPending = true;
-    project.reminderNotificationStatus = "pending";
-    project.reminderNotificationCreatedAt = new Date().toISOString();
-    project.reminderNotificationSentAt = "";
-    project.reminderNotificationLastError = "";
-    project.reminderNotificationKey = [project.id, member.name, command.reminderDate, command.note || ""].join("|");
-    project.reminderNotificationAttempts = 0;
-    project.reminderRecordSource = "企业微信";
-    project.reminderRecordActor = actor;
-    project.reminderRecordAt = dateTimeString(nowDate());
-    project.reminderRecordNotice = buildReminderRecordNotice(actor, member, project, command.note);
+    project.reminderRecordNotice = buildReminderRecordNotice(actor, member, reminder);
     updateProjectFollowUp(project, actor, `提醒 ${member.name}：${command.note}`, command.note, "企业微信提醒");
     const sourceTip = source === "ai" ? "已按自然语言解析并写入提醒。" : "";
     const transcriptTip = transcript?.text ? `语音识别：${transcript.text}` : "";
-    const replyText = [sourceTip, transcriptTip, buildReminderText(project, command.note)].filter(Boolean).join("\n\n");
+    const replyText = ["您发布的提醒命令成功。", sourceTip, transcriptTip, buildReminderText(project, reminder)].filter(Boolean).join("\n\n");
     return saveWithReply(replyText, { changedProject: project, targetMember: member });
   }
 
