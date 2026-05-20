@@ -2,6 +2,10 @@ const { readStoredState, writeStoredState } = require("./store");
 const { getConfig } = require("./wecom-crypto");
 const { createAudioTranscription, createChatCompletion } = require("./ai-client");
 const { appendProjectReminder, appendPublicReminder, normalizeProjectReminders, normalizePublicReminders } = require("./reminders");
+const { appendPushLog } = require("./push-log");
+
+const MESSAGE_DEDUPE_TTL_MS = 10 * 60 * 1000;
+const recentMessageKeys = new Map();
 
 function nowDate() {
   return new Date();
@@ -63,6 +67,25 @@ function shouldStoreIncomingMessage(message) {
 
 function messageKey(message) {
   return String(message.MsgId || message.MsgID || [message.FromUserName, message.CreateTime, message.MsgType, message.Content || message.MediaId].join(":")).trim();
+}
+
+function commandReplyLogId(key) {
+  const safeKey = String(key || "")
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .slice(0, 72);
+  return `command-reply-${safeKey || Date.now()}`;
+}
+
+function rememberMessageKey(key) {
+  const normalized = String(key || "").trim();
+  if (!normalized) return true;
+  const now = Date.now();
+  for (const [storedKey, timestamp] of recentMessageKeys.entries()) {
+    if (now - timestamp > MESSAGE_DEDUPE_TTL_MS) recentMessageKeys.delete(storedKey);
+  }
+  if (recentMessageKeys.has(normalized)) return false;
+  recentMessageKeys.set(normalized, now);
+  return true;
 }
 
 function updateInboxByKey(state, key, patch) {
@@ -547,11 +570,16 @@ async function transcribeVoiceMessage(message) {
 }
 
 async function handleIncomingMessage(message) {
+  const key = messageKey(message);
+  const firstSeenInProcess = rememberMessageKey(key);
   const snapshot = await readStoredState();
   const state = snapshot.state;
   const actor = actorNameFromMessage(state, message.FromUserName);
-  const key = messageKey(message);
   const existingInbox = (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).find((item) => item.messageKey === key);
+
+  if (!firstSeenInProcess) {
+    return { replyText: "", snapshot };
+  }
 
   if (existingInbox) {
     return { replyText: "", snapshot };
@@ -589,17 +617,59 @@ async function handleIncomingMessage(message) {
       transcript: transcript?.text || "",
       transcriptSource: transcript?.source || "",
     });
-    const saved = await writeStoredState(state);
     if (replyText.startsWith("您发布的")) {
+      const logId = commandReplyLogId(key);
+      appendPushLog(state, {
+        id: logId,
+        content: replyText,
+        actor: "WorkPad 管家",
+        receiver: actor,
+        receiverUserId: message.FromUserName,
+        success: false,
+        status: "待发送",
+        source: "命令反馈",
+      });
+      let saved = await writeStoredState(state);
       try {
         await sendAppTextMessage({ toUser: message.FromUserName, content: replyText });
+        updateInboxByKey(state, key, {
+          activeReplySent: true,
+          activeReplySentAt: dateTimeString(nowDate()),
+        });
+        appendPushLog(state, {
+          id: logId,
+          content: replyText,
+          actor: "WorkPad 管家",
+          receiver: actor,
+          receiverUserId: message.FromUserName,
+          success: true,
+          status: "成功",
+          source: "命令反馈",
+          pushedAt: new Date().toISOString(),
+        });
+        saved = await writeStoredState(state);
         return { replyText: "", snapshot: saved, activeReplySent: true, ...extra };
       } catch (error) {
+        const activeReplyError = error instanceof Error ? error.message : String(error);
         updateInboxByKey(state, key, {
-          activeReplyError: error instanceof Error ? error.message : String(error),
+          activeReplyError,
         });
+        appendPushLog(state, {
+          id: logId,
+          content: replyText,
+          actor: "WorkPad 管家",
+          receiver: actor,
+          receiverUserId: message.FromUserName,
+          success: false,
+          status: "失败",
+          source: "命令反馈",
+          error: activeReplyError,
+          pushedAt: new Date().toISOString(),
+        });
+        saved = await writeStoredState(state);
       }
     }
+    const saved = await writeStoredState(state);
     return { replyText, snapshot: saved, ...extra };
   }
 
@@ -755,7 +825,8 @@ async function sendAppTextMessage({ toUser, content }) {
       agentid: Number(agentId),
       text: { content },
       safe: 0,
-      enable_duplicate_check: 0,
+      enable_duplicate_check: 1,
+      duplicate_check_interval: 1800,
     }),
   });
   const json = await response.json();

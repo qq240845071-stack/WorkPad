@@ -120,8 +120,17 @@ function syncProjectReminderFields(project) {
   return project;
 }
 
+function sameReminder(left, right) {
+  return textValue(left.person) === textValue(right.person)
+    && textValue(left.date) === textValue(right.date)
+    && textValue(left.note) === textValue(right.note)
+    && textValue(left.actor) === textValue(right.actor)
+    && !["cancelled"].includes(textValue(left.status));
+}
+
 function appendProjectReminder(project, input) {
   const source = input || {};
+  const reminders = normalizeProjectReminders(project);
   const reminder = normalizeReminderItem({
     ...source,
     id: source.id || reminderId(project.id || "project"),
@@ -129,7 +138,13 @@ function appendProjectReminder(project, input) {
     pending: source.pending ?? true,
     createdAt: source.createdAt || nowIso(),
   }, project);
-  project.reminders = [...normalizeProjectReminders(project), reminder];
+  const existing = reminders.find((item) => sameReminder(item, reminder));
+  if (existing) {
+    project.reminders = reminders;
+    syncProjectReminderFields(project);
+    return existing;
+  }
+  project.reminders = [...reminders, reminder];
   syncProjectReminderFields(project);
   return reminder;
 }
@@ -152,6 +167,7 @@ function normalizePublicReminders(reminders) {
 
 function appendPublicReminder(state, input) {
   const source = input || {};
+  const reminders = normalizePublicReminders(state.publicReminders);
   const reminder = normalizePublicReminder({
     ...source,
     id: source.id || reminderId("public"),
@@ -160,7 +176,12 @@ function appendPublicReminder(state, input) {
     createdAt: source.createdAt || nowIso(),
     source: source.source || "公共提醒",
   });
-  state.publicReminders = [...normalizePublicReminders(state.publicReminders), reminder];
+  const existing = reminders.find((item) => sameReminder(item, reminder));
+  if (existing) {
+    state.publicReminders = reminders;
+    return existing;
+  }
+  state.publicReminders = [...reminders, reminder];
   return reminder;
 }
 

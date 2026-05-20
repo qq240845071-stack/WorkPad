@@ -16,6 +16,7 @@ function appendPushLog(state, payload) {
   const success = payload.success === true || payload.success === "true";
   const receiverUserId = cleanText(payload.receiverUserId || payload.toUser);
   const confirmable = payload.confirmable === true || payload.confirmable === "true";
+  const logs = Array.isArray(state.pushLogs) ? state.pushLogs : [];
   const log = {
     id: cleanText(payload.id, `push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     content: cleanText(payload.content, "未填写推送内容"),
@@ -39,7 +40,13 @@ function appendPushLog(state, payload) {
     reminderId: cleanText(payload.reminderId),
     reminderScope: cleanText(payload.reminderScope),
   };
-  state.pushLogs = [log, ...(Array.isArray(state.pushLogs) ? state.pushLogs : [])];
+  const existingIndex = logs.findIndex((item) => item.id === log.id);
+  if (existingIndex >= 0) {
+    const nextLog = { ...logs[existingIndex], ...log };
+    state.pushLogs = [nextLog, ...logs.filter((_, index) => index !== existingIndex)];
+    return nextLog;
+  }
+  state.pushLogs = [log, ...logs];
   return log;
 }
 

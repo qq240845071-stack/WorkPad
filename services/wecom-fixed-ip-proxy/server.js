@@ -162,7 +162,8 @@ async function handleSendText(req, res) {
       agentid: Number(agentId),
       text: { content },
       safe: 0,
-      enable_duplicate_check: 0,
+      enable_duplicate_check: 1,
+      duplicate_check_interval: 1800,
     }),
   });
   jsonResponse(res, 200, { ok: true, ...json });
