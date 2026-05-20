@@ -162,6 +162,7 @@ const ADMIN_TAB_RULES = {
   partners: ["管理合作方"],
   businessLines: ["管理流程节点"],
   workflow: ["管理流程节点"],
+  pushLogs: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
 };
 
 const state = {
@@ -174,6 +175,7 @@ const state = {
   workflowConfig: [],
   businessLines: [],
   wecomInbox: [],
+  pushLogs: [],
   filters: { search: "", owner: "全部", status: "全部", risk: "全部", update: "全部", reminder: "全部" },
   selectedProjectId: null,
   editingProjectId: null,
@@ -563,6 +565,7 @@ function exportStateSnapshot() {
     selectedWorkflowLineId: state.selectedWorkflowLineId,
     currentUserId: state.currentUserId,
     wecomInbox: state.wecomInbox,
+    pushLogs: state.pushLogs,
   };
 }
 
@@ -578,6 +581,7 @@ function applyStateSnapshot(snapshot) {
   state.projects = Array.isArray(snapshot.projects) && snapshot.projects.length ? snapshot.projects.map(normalizeProject) : seedProjects();
   state.partners = Array.isArray(snapshot.partners) ? normalizePartners(snapshot.partners, state.projects) : clone(DEFAULT_PARTNERS);
   state.wecomInbox = Array.isArray(snapshot.wecomInbox) ? snapshot.wecomInbox : [];
+  state.pushLogs = Array.isArray(snapshot.pushLogs) ? snapshot.pushLogs : [];
   state.currentUserId = state.teamMembers.some((item) => item.id === snapshot.currentUserId) ? snapshot.currentUserId : state.teamMembers[0].id;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.projects));
   localStorage.setItem(
@@ -741,6 +745,13 @@ function escapeHtml(value) {
 
 function formatMessageText(value) {
   return escapeHtml(value).replace(/\n/g, "<br />");
+}
+
+function formatPushLogTime(value) {
+  if (!value) return "未记录";
+  const date = parseDate(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return dateTimeString(date);
 }
 
 function tint(hex, opacity) {
@@ -1207,12 +1218,11 @@ function renderPersonBoard(projects) {
 }
 
 function adminCards() {
-  const activeOwners = new Set(state.projects.filter((item) => !["已完成", "已暂停"].includes(item.status)).map((item) => item.owner)).size;
   return [
     ["人员总数", String(state.teamMembers.length), "含编辑、主管和协同支持", "#23404d"],
     ["合作方总数", String(getPartners().length), "项目录入时通过选择进入", "#a4482f"],
     ["业务线", String(businessLineOptions().length), "不同业务线可配置不同流程", "#697443"],
-    ["在途负责人", String(activeOwners), "当前至少有一个在途项目的成员", "#b67c1f"],
+    ["推送记录", String(state.pushLogs.length), "企微提醒和主动消息留痕", "#b67c1f"],
   ];
 }
 
@@ -1236,6 +1246,7 @@ function renderAdminNav() {
     ["partners", "合作方管理", "合作方主数据和项目引用"],
     ["businessLines", "业务线管理", "出版、设计、生产等业务分类"],
     ["workflow", "流程节点配置", "按业务线维护节点增删改"],
+    ["pushLogs", "推送记录", "内容、时间、发起人和发送结果"],
   ];
   const visibleTabs = tabs.filter(([key]) => allowedAdminTabs().includes(key));
   elements.adminTabNav.innerHTML = visibleTabs.map(([key, title, desc]) => `
@@ -1524,6 +1535,53 @@ async function sendAiChatMessage(message) {
   }
 }
 
+function renderPushLogsPanel() {
+  const pushLogs = (Array.isArray(state.pushLogs) ? state.pushLogs : []).slice().sort((left, right) => {
+    return parseDate(right.pushedAt).getTime() - parseDate(left.pushedAt).getTime();
+  });
+  elements.adminContent.innerHTML = `
+    <div class="data-panel-stack">
+      <section class="data-panel">
+        <div class="table-toolbar">
+          <div>
+            <h3>企业微信信息推送记录</h3>
+            <div class="mini-text">记录每一次主动推送和到点提醒，便于追查谁发给谁、什么时候发、有没有成功。</div>
+          </div>
+          <span class="chip chip-status">保留最近 ${pushLogs.length} 条</span>
+        </div>
+      </section>
+    </div>
+    ${pushLogs.length ? `
+      <div class="table-wrapper push-log-wrapper">
+        <table>
+          <thead><tr><th>推送时间</th><th>发起人</th><th>接收人</th><th>推送内容</th><th>结果</th><th>来源/项目</th><th>失败原因</th></tr></thead>
+          <tbody>
+            ${pushLogs.map((log) => {
+              const projectText = [log.projectCode, log.projectTitle].filter(Boolean).join(" · ");
+              const sourceText = [log.source || "企业微信推送", projectText].filter(Boolean).join(" / ");
+              return `
+                <tr>
+                  <td>${escapeHtml(formatPushLogTime(log.pushedAt))}</td>
+                  <td>${escapeHtml(log.actor || "WorkPad 管家")}</td>
+                  <td>
+                    <strong>${escapeHtml(log.receiver || "未设置接收人")}</strong>
+                    ${log.receiverUserId ? `<div class="mini-text">${escapeHtml(log.receiverUserId)}</div>` : ""}
+                  </td>
+                  <td class="push-content-cell">${formatMessageText(log.content || "")}</td>
+                  <td><span class="chip ${log.success ? "chip-risk-low" : "chip-risk-high"}">${escapeHtml(log.status || (log.success ? "成功" : "失败"))}</span></td>
+                  <td>${escapeHtml(sourceText)}</td>
+                  <td class="push-error-cell">${escapeHtml(log.error || "-")}</td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>` : `
+      <section class="settings-panel">
+        <h3>还没有推送记录</h3>
+        <div class="mini-text">后续企业微信到点提醒、后台主动发消息会自动写入这里。</div>
+      </section>`}`;
+}
+
 function renderAdminContent() {
   if (!canAccessAdmin()) {
     elements.adminTitle.textContent = "后台权限未开放";
@@ -1547,6 +1605,7 @@ function renderAdminContent() {
     partners: ["合作方管理", `当前已整理 ${getPartners().length} 个合作方，项目录入时已改成通过选择进入。`],
     businessLines: ["业务线管理", `当前共 ${businessLineOptions().length} 条业务线，可分别维护流程名称和说明。`],
     workflow: ["流程节点配置", "可以按业务线增删流程节点、定义节点名称、负责人角色、提醒角色和标准周期。"],
+    pushLogs: ["信息推送记录", `当前共 ${state.pushLogs.length} 条推送记录，包含成功、失败和失败原因。`],
   };
   elements.adminTitle.textContent = titles[state.adminTab][0];
   elements.adminMeta.textContent = titles[state.adminTab][1];
@@ -1566,6 +1625,7 @@ function renderAdminContent() {
               <span class="chip chip-status">合作方管理</span>
               <span class="chip chip-status">业务线管理</span>
               <span class="chip chip-status">流程节点配置</span>
+              <span class="chip chip-status">信息推送记录</span>
           </div>
         </section>
         <section class="settings-panel">
@@ -1578,6 +1638,11 @@ function renderAdminContent() {
 
   if (state.adminTab === "ai") {
     renderAiPanel();
+    return;
+  }
+
+  if (state.adminTab === "pushLogs") {
+    renderPushLogsPanel();
     return;
   }
 

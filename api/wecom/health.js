@@ -20,6 +20,7 @@ module.exports = async (_req, res) => {
       fixedIpProxyBaseUrlReady: Boolean(process.env.WECOM_PROXY_BASE_URL || process.env.WECOM_PROXY_URL),
       fixedIpProxySecretReady: Boolean(process.env.WECOM_PROXY_SECRET),
       inboxCount: Array.isArray(snapshot.state.wecomInbox) ? snapshot.state.wecomInbox.length : 0,
+      pushLogCount: Array.isArray(snapshot.state.pushLogs) ? snapshot.state.pushLogs.length : 0,
       storageMode: snapshot.meta.storageMode,
       persistence: snapshot.meta.persistence,
       updatedAt: snapshot.meta.updatedAt,

@@ -1079,6 +1079,22 @@ th {
   z-index: 1;
 }
 
+.push-log-wrapper table {
+  min-width: 1040px;
+}
+
+.push-content-cell,
+.push-error-cell {
+  max-width: 440px;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.push-error-cell {
+  max-width: 280px;
+  color: #7f311d;
+}
+
 .table-wrapper input,
 .table-wrapper select {
   width: 100%;

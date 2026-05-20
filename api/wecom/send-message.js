@@ -1,6 +1,7 @@
-const { readStoredState } = require("../_lib/store");
+const { readStoredState, writeStoredState } = require("../_lib/store");
 const { getConfig, hasSendConfig } = require("../_lib/wecom-crypto");
 const { sendAppTextMessage, findMember, hasWecomProxyConfig } = require("../_lib/wecom-service");
+const { appendPushLog, memberNameByUserId } = require("../_lib/push-log");
 
 async function readJsonBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -50,6 +51,10 @@ module.exports = async (req, res) => {
 
     let toUser = String(body.toUser || "").trim();
     let content = String(body.content || "").trim();
+    let receiver = memberNameByUserId(state, toUser);
+    let projectForLog = null;
+    const actor = String(body.actor || "WorkPad 后台").trim();
+    const source = String(body.source || (body.projectId ? "项目提醒推送" : "手动推送")).trim();
 
     if (body.projectId) {
       const project = state.projects.find((item) => item.id === body.projectId);
@@ -62,6 +67,8 @@ module.exports = async (req, res) => {
       }
       toUser = member.wecomUserId;
       content = content || buildProjectReminder(project, body.note);
+      receiver = member.name;
+      projectForLog = project;
     }
 
     if (body.memberKeyword && !toUser) {
@@ -70,13 +77,42 @@ module.exports = async (req, res) => {
         return sendJson(res, 400, { ok: false, message: "没有找到可发送的企微成员账号。" });
       }
       toUser = member.wecomUserId;
+      receiver = member.name;
     }
 
     if (!toUser || !content) {
       return sendJson(res, 400, { ok: false, message: "需要提供 toUser + content，或者直接传 projectId。" });
     }
 
-    const result = await sendAppTextMessage({ toUser, content });
+    let result;
+    try {
+      result = await sendAppTextMessage({ toUser, content });
+    } catch (error) {
+      appendPushLog(state, {
+        content,
+        actor,
+        receiver: receiver || memberNameByUserId(state, toUser) || toUser,
+        receiverUserId: toUser,
+        success: false,
+        source,
+        error: error instanceof Error ? error.message : String(error),
+        projectCode: projectForLog?.code,
+        projectTitle: projectForLog?.title,
+      });
+      await writeStoredState(state);
+      throw error;
+    }
+    appendPushLog(state, {
+      content,
+      actor,
+      receiver: receiver || memberNameByUserId(state, toUser) || toUser,
+      receiverUserId: toUser,
+      success: true,
+      source,
+      projectCode: projectForLog?.code,
+      projectTitle: projectForLog?.title,
+    });
+    await writeStoredState(state);
     return sendJson(res, 200, {
       ok: true,
       toUser,

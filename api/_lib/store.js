@@ -188,6 +188,26 @@ function normalizeProjects(projects) {
   }));
 }
 
+function normalizePushLogs(pushLogs) {
+  return (Array.isArray(pushLogs) ? pushLogs : []).map((item, index) => {
+    const success = item.success === true || item.success === "true" || item.status === "成功";
+    return {
+      id: String(item.id || `push-log-${index}`),
+      content: String(item.content || "未填写推送内容"),
+      pushedAt: String(item.pushedAt || item.time || ""),
+      actor: String(item.actor || "WorkPad 管家"),
+      receiver: String(item.receiver || item.toUser || "未设置接收人"),
+      receiverUserId: String(item.receiverUserId || item.toUser || ""),
+      success,
+      status: String(item.status || (success ? "成功" : "失败")),
+      error: String(item.error || ""),
+      source: String(item.source || "企业微信推送"),
+      projectCode: String(item.projectCode || ""),
+      projectTitle: String(item.projectTitle || ""),
+    };
+  }).slice(0, 300);
+}
+
 function normalizeState(rawState) {
   const seed = createDefaultState();
   const state = rawState && typeof rawState === "object" ? rawState : {};
@@ -213,6 +233,7 @@ function normalizeState(rawState) {
     selectedWorkflowLineId: businessLines.some((line) => line.id === state.selectedWorkflowLineId) ? state.selectedWorkflowLineId : businessLines[0]?.id || DEFAULT_BUSINESS_LINE_ID,
     currentUserId: state.currentUserId || seed.currentUserId,
     wecomInbox: Array.isArray(state.wecomInbox) ? state.wecomInbox.slice(0, 200) : [],
+    pushLogs: normalizePushLogs(state.pushLogs),
   };
 }
 

@@ -276,6 +276,7 @@ function createDefaultState() {
     selectedWorkflowLineId: DEFAULT_BUSINESS_LINE_ID,
     currentUserId: TEAM_MEMBERS[0].id,
     wecomInbox: [],
+    pushLogs: [],
   };
 }
 

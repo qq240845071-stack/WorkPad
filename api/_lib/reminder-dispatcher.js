@@ -1,5 +1,6 @@
 const { readStoredState, writeStoredState } = require("./store");
 const { findMember, sendAppTextMessage } = require("./wecom-service");
+const { appendPushLog } = require("./push-log");
 
 const RETRY_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -64,6 +65,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
 
   for (const project of dueProjects) {
     const member = findMember(state, project.reminderPerson);
+    const content = buildReminderMessage(project);
     const baseResult = {
       projectId: project.id,
       projectCode: project.code,
@@ -77,6 +79,18 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
       project.reminderNotificationLastAttemptAt = now.toISOString();
       project.reminderNotificationLastError = "提醒人还没有绑定企微账号 UserId。";
       project.reminderNotificationAttempts = Number(project.reminderNotificationAttempts || 0) + 1;
+      if (!dryRun) {
+        appendPushLog(state, {
+          content,
+          actor: "WorkPad 管家",
+          receiver: project.reminderPerson,
+          success: false,
+          source: "到点提醒",
+          error: project.reminderNotificationLastError,
+          projectCode: project.code,
+          projectTitle: project.title,
+        });
+      }
       results.push({ ...baseResult, ok: false, skipped: true, error: project.reminderNotificationLastError });
       continue;
     }
@@ -89,7 +103,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
     try {
       await sendAppTextMessage({
         toUser: member.wecomUserId,
-        content: buildReminderMessage(project),
+        content,
       });
       project.reminderNotificationPending = false;
       project.reminderNotificationStatus = "sent";
@@ -107,12 +121,33 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
         },
         ...(Array.isArray(project.logs) ? project.logs : []),
       ].slice(0, 100);
+      appendPushLog(state, {
+        content,
+        actor: "WorkPad 管家",
+        receiver: member.name,
+        receiverUserId: member.wecomUserId,
+        success: true,
+        source: "到点提醒",
+        projectCode: project.code,
+        projectTitle: project.title,
+      });
       results.push({ ...baseResult, ok: true, toUser: member.wecomUserId });
     } catch (error) {
       project.reminderNotificationStatus = "failed";
       project.reminderNotificationLastAttemptAt = now.toISOString();
       project.reminderNotificationLastError = error instanceof Error ? error.message : String(error);
       project.reminderNotificationAttempts = Number(project.reminderNotificationAttempts || 0) + 1;
+      appendPushLog(state, {
+        content,
+        actor: "WorkPad 管家",
+        receiver: member.name,
+        receiverUserId: member.wecomUserId,
+        success: false,
+        source: "到点提醒",
+        error: project.reminderNotificationLastError,
+        projectCode: project.code,
+        projectTitle: project.title,
+      });
       results.push({ ...baseResult, ok: false, toUser: member.wecomUserId, error: project.reminderNotificationLastError });
     }
   }
