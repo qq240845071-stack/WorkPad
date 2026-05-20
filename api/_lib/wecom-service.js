@@ -618,6 +618,7 @@ async function handleIncomingMessage(message, options = {}) {
   let transcript = null;
 
   if (shouldStoreIncomingMessage(message) && !existingInbox) {
+    const recognition = String(message.Recognition || "").trim();
     pushInbox(state, {
       messageKey: key,
       direction: "inbound",
@@ -627,7 +628,9 @@ async function handleIncomingMessage(message, options = {}) {
       event: message.Event || "",
       mediaId: message.MediaId || "",
       format: message.Format || "",
-      content: content || (message.MsgType === "voice" ? "[语音待识别]" : ""),
+      content: content || recognition || (message.MsgType === "voice" ? "[语音待识别]" : ""),
+      transcript: recognition,
+      transcriptSource: recognition ? "wecom-recognition" : "",
       status: message.MsgType === "voice" ? "queued" : "received",
     });
     if (message.MsgType === "voice") {
@@ -700,12 +703,17 @@ async function handleIncomingMessage(message, options = {}) {
   }
 
   if (message.MsgType === "voice") {
-    if (!String(message.Recognition || "").trim() && !options.reprocessExisting) {
-      const replyText = "已收到语音，正在转文字和解析。处理完成后，我会再主动给你发送成功或失败结果。";
+    if (!options.reprocessExisting) {
+      const recognition = String(message.Recognition || "").trim();
+      const replyText = recognition
+        ? "已收到语音，已经拿到转文字结果，正在解析命令。处理完成后，我会再主动给你发送成功或失败结果。"
+        : "已收到语音，正在转文字和解析。处理完成后，我会再主动给你发送成功或失败结果。";
       updateInboxByKey(state, key, {
         replyText,
         status: "queued",
-        content: "[语音已入队]",
+        content: recognition || "[语音已入队]",
+        transcript: recognition,
+        transcriptSource: recognition ? "wecom-recognition" : "",
       });
       const saved = await writeStoredState(state);
       return { replyText, snapshot: saved, queued: true };
@@ -834,7 +842,7 @@ async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
   const dedupedCount = dedupeWecomInbox(state);
   const inbox = Array.isArray(state.wecomInbox) ? state.wecomInbox : [];
   const candidates = inbox
-    .filter((item) => item.msgType === "voice" && item.mediaId && ["queued", "processing"].includes(item.status))
+    .filter((item) => item.msgType === "voice" && (item.mediaId || item.transcript) && ["queued", "processing"].includes(item.status))
     .slice(0, Math.max(1, Number(limit) || 3));
   const results = [];
 
@@ -873,6 +881,7 @@ async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
         MediaId: item.mediaId,
         MsgId: item.messageKey,
         Format: item.format || "amr",
+        Recognition: item.transcript || "",
       }, {
         reprocessExisting: true,
         forceActiveReply: true,
