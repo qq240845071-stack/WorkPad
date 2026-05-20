@@ -208,19 +208,30 @@ async function handleMedia(req, res, requestUrl) {
 }
 
 async function resolveEgressIp() {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2500);
-  try {
-    const response = await fetch("https://api.ipify.org?format=json", {
-      signal: controller.signal,
-    });
-    const json = await response.json();
-    return json.ip || "";
-  } catch (error) {
-    return "";
-  } finally {
-    clearTimeout(timer);
+  const endpoints = [
+    { url: "https://api.ipify.org?format=json", type: "json", field: "ip" },
+    { url: "https://ifconfig.me/ip", type: "text" },
+    { url: "https://ipinfo.io/ip", type: "text" },
+  ];
+
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    try {
+      const response = await fetch(endpoint.url, { signal: controller.signal });
+      if (!response.ok) continue;
+      const value = endpoint.type === "json"
+        ? String((await response.json().catch(() => ({})))[endpoint.field] || "")
+        : String(await response.text());
+      const ip = value.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/)?.[0] || "";
+      if (ip) return ip;
+    } catch (error) {
+      // 部分云服务器可能访问不了某个查 IP 服务，继续尝试下一个。
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return "";
 }
 
 async function handleHealth(_req, res) {
