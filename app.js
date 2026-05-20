@@ -193,7 +193,7 @@ const state = {
   publicReminders: [],
   confirmablePushEnabled: true,
   filters: { search: "", owner: "全部", status: "全部", risk: "全部", update: "全部", reminder: "全部" },
-  reminderFilters: { tab: "all", person: "全部", keyword: "", sort: "timeAsc" },
+  reminderFilters: { tab: "all", person: "全部", keyword: "", sort: "timeDesc" },
   selectedProjectId: null,
   editingProjectId: null,
   currentView: "board",
@@ -2197,7 +2197,7 @@ function reminderTabMatches(row, tab) {
 }
 
 function filteredReminderRows() {
-  const filters = state.reminderFilters || { tab: "all", person: "全部", keyword: "", sort: "timeAsc" };
+  const filters = state.reminderFilters || { tab: "all", person: "全部", keyword: "", sort: "timeDesc" };
   const keyword = String(filters.keyword || "").trim().toLowerCase();
   const person = filters.person || "全部";
   const rows = allReminderRows()
@@ -2240,7 +2240,7 @@ function confirmationStatusText(reminder) {
 
 function renderRemindersPanel() {
   const rows = filteredReminderRows();
-  const filters = state.reminderFilters || { tab: "all", person: "全部", keyword: "", sort: "timeAsc" };
+  const filters = state.reminderFilters || { tab: "all", person: "全部", keyword: "", sort: "timeDesc" };
   const upcomingPublic = activePublicReminders().length;
   const personOptions = ["全部", ...state.teamMembers.map((member) => member.name)];
   elements.adminContent.innerHTML = `
