@@ -1248,6 +1248,21 @@ th {
   min-width: 1040px;
 }
 
+.node-timeline-wrapper table {
+  min-width: 920px;
+}
+
+.node-duration {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(105, 116, 67, 0.14);
+  color: #49512d;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .push-content-cell,
 .push-error-cell {
   max-width: 440px;

@@ -867,6 +867,150 @@ function normalizeReminderDateValue(value, fallback = "") {
   return Number.isNaN(parsed.getTime()) ? raw : dateTimeString(parsed);
 }
 
+function normalizeNodeDateValue(value, fallback = "") {
+  const raw = textValue(value || fallback);
+  if (!raw) return "";
+  const parsed = parseDate(raw);
+  return Number.isNaN(parsed.getTime()) ? "" : dateString(parsed);
+}
+
+function nodeDurationDays(node = {}) {
+  const startedAt = normalizeNodeDateValue(node.startedAt || node.enteredAt || node.started || node.planned);
+  if (!startedAt) return "";
+  const completedAt = normalizeNodeDateValue(node.completedAt || node.completed || "");
+  const status = textValue(node.status);
+  const endValue = completedAt || (["进行中", "已阻塞"].includes(status) ? dateString(new Date()) : "");
+  if (!endValue) return "";
+  const startDate = parseDate(startedAt);
+  const endDate = parseDate(endValue);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return "";
+  return Math.max(0, diffDays(endDate, startDate));
+}
+
+function nodeDurationText(node = {}) {
+  const days = nodeDurationDays(node);
+  if (days === "") return "未开始";
+  const completedAt = normalizeNodeDateValue(node.completedAt || node.completed || "");
+  if (!completedAt && ["进行中", "已阻塞"].includes(node.status)) return days === 0 ? "今天进入" : `已 ${days} 天`;
+  return days === 0 ? "当天" : `${days} 天`;
+}
+
+function nodeGapDays(nodes = [], index = 0) {
+  if (index <= 0) return "";
+  const currentDate = normalizeNodeDateValue(nodes[index]?.startedAt);
+  if (!currentDate) return "";
+  const previous = nodes.slice(0, index).reverse().find((node) => normalizeNodeDateValue(node.startedAt));
+  const previousDate = normalizeNodeDateValue(previous?.startedAt);
+  if (!previousDate) return "";
+  return Math.max(0, diffDays(parseDate(currentDate), parseDate(previousDate)));
+}
+
+function nodeGapText(nodes = [], index = 0) {
+  if (index <= 0) return "起点";
+  const days = nodeGapDays(nodes, index);
+  if (days === "") return "未记录";
+  return days === 0 ? "当天" : `${days} 天`;
+}
+
+function normalizeProjectNode(node, context = {}, index = 0) {
+  const source = node || {};
+  const planned = normalizeNodeDateValue(source.planned || source.plannedAt || context.planned);
+  const status = textValue(source.status || "未开始") || "未开始";
+  const startedAt = normalizeNodeDateValue(
+    source.startedAt || source.enteredAt || source.started || source.actualStart || (status === "未开始" ? "" : planned)
+  );
+  const completedAt = normalizeNodeDateValue(source.completedAt || source.completed || "");
+  const normalized = {
+    ...source,
+    name: textValue(source.name || context.name || `节点 ${index + 1}`),
+    status,
+    owner: textValue(source.owner || context.owner || "未分配"),
+    planned,
+    startedAt,
+    completedAt,
+    completed: completedAt,
+    reminderPerson: textValue(source.reminderPerson || context.reminderPerson || context.owner || "未分配"),
+    reminderDate: normalizeReminderDateValue(source.reminderDate || context.reminderDate || planned),
+    note: textValue(source.note || context.note || ""),
+  };
+  return {
+    ...normalized,
+    durationDays: nodeDurationDays(normalized),
+  };
+}
+
+function mergeProjectNodes(existingNodes = [], context = {}) {
+  const startDate = parseDate(context.startDate || new Date());
+  const businessLineId = context.businessLineId || DEFAULT_BUSINESS_LINE_ID;
+  const baseNodes = buildNodes(
+    startDate,
+    context.owner || "未分配",
+    context.status || "待启动",
+    context.currentNode,
+    context.reminderPerson || context.owner || "未分配",
+    context.reminderDate || new Date(),
+    context.blockedNode || "",
+    businessLineId
+  );
+  const existingByName = new Map(
+    (Array.isArray(existingNodes) ? existingNodes : [])
+      .map((node, index) => normalizeProjectNode(node, context, index))
+      .filter((node) => node.name)
+      .map((node) => [node.name, node])
+  );
+  const currentIndex = Math.max(0, baseNodes.findIndex((node) => node.name === context.currentNode));
+  const today = dateString(new Date());
+  let previousCompletedAt = dateString(startDate);
+  return baseNodes.map((baseNode, index) => {
+    const existing = existingByName.get(baseNode.name);
+    const hasExistingHistory = Array.isArray(existingNodes) && existingNodes.length > 0;
+    const justCompleted = existing && ["进行中", "已阻塞"].includes(existing.status) && baseNode.status === "已完成" && !existing.completedAt;
+    const justStarted = existing && existing.status === "未开始" && baseNode.status !== "未开始" && !existing.startedAt;
+    const merged = normalizeProjectNode({
+      ...baseNode,
+      ...(existing || {}),
+      name: baseNode.name,
+      status: baseNode.status,
+      owner: baseNode.owner,
+      planned: baseNode.planned,
+      reminderPerson: baseNode.reminderPerson,
+      reminderDate: baseNode.reminderDate,
+      note: existing?.note && existing.status === baseNode.status ? existing.note : baseNode.note,
+    }, context, index);
+
+    if (index === 0 && !merged.startedAt && context.status !== "待启动") merged.startedAt = dateString(startDate);
+    if (index <= currentIndex && baseNode.status !== "未开始" && !merged.startedAt) {
+      merged.startedAt = previousCompletedAt || baseNode.startedAt || today;
+    }
+    if (hasExistingHistory && !existing && baseNode.status !== "未开始") {
+      merged.startedAt = index === 0 ? dateString(startDate) : today;
+    }
+    if (justStarted) {
+      merged.startedAt = today;
+    }
+    if (index < currentIndex && !merged.completedAt) {
+      merged.completedAt = baseNode.completedAt || today;
+    }
+    if (justCompleted) {
+      merged.completedAt = today;
+    }
+    if (index === currentIndex && context.status !== "已完成") {
+      merged.completedAt = "";
+    }
+    if (context.status === "已完成" && !merged.completedAt) {
+      merged.completedAt = baseNode.completedAt || today;
+    }
+    if (index > currentIndex && baseNode.status === "未开始" && !existing?.startedAt) {
+      merged.startedAt = "";
+      merged.completedAt = "";
+    }
+    merged.completed = merged.completedAt;
+    merged.durationDays = nodeDurationDays(merged);
+    previousCompletedAt = merged.completedAt || merged.startedAt || previousCompletedAt;
+    return merged;
+  });
+}
+
 function reminderUid(projectId = "project") {
   return `reminder-${projectId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1092,16 +1236,20 @@ function buildNodes(startDate, owner, status, currentNode, reminderPerson, remin
     } else if (index === currentIndex) {
       nodeStatus = status === "已暂停" || blockedNode === name ? "已阻塞" : status === "待启动" ? "未开始" : "进行中";
     }
-    return {
+    const startedAt = nodeStatus === "未开始" ? "" : index === 0 ? dateString(startDate) : dateString(planned);
+    const completedAt = completed;
+    return normalizeProjectNode({
       name,
       status: nodeStatus,
       owner,
       planned: dateString(planned),
-      completed,
+      startedAt,
+      completedAt,
+      completed: completedAt,
       reminderPerson: index === currentIndex ? reminderPerson : owner,
       reminderDate: index === currentIndex ? dateTimeString(reminderDate) : dateTimeString(planned),
       note: nodeStatus === "已阻塞" ? "当前节点存在阻塞，需要人工跟进。" : nodeStatus === "进行中" ? "当前为主要推进节点。" : nodeStatus === "已完成" ? "节点已关闭。" : "尚未启动。",
-    };
+    }, { owner, reminderPerson, reminderDate }, index);
   });
 }
 
@@ -1212,9 +1360,16 @@ function normalizeProject(project) {
   const reminderPerson = primaryReminder?.person || reminderBase.reminderPerson;
   const reminderDate = primaryReminder?.date || reminderBase.reminderDate;
   const startDate = parseDate(project.startDate || new Date());
-  const normalizedNodes = Array.isArray(project.nodes) && project.nodes.length
-    ? project.nodes.map((node) => ({ ...node, reminderDate: dateTimeString(node.reminderDate || node.planned || reminderDate) }))
-    : buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, "", businessLineId);
+  const normalizedNodes = mergeProjectNodes(project.nodes, {
+    startDate,
+    owner,
+    status,
+    currentNode,
+    reminderPerson,
+    reminderDate,
+    blockedNode: status === "已暂停" ? currentNode : "",
+    businessLineId,
+  });
   return syncProjectReminderFields({
     ...project,
     businessLineId,
@@ -2527,6 +2682,62 @@ function renderAdminContent() {
     </div>`;
 }
 
+function renderNodeTimelineHtml(project) {
+  const nodes = mergeProjectNodes(project.nodes, {
+    startDate: project.startDate,
+    owner: project.owner,
+    status: project.status,
+    currentNode: project.currentNode,
+    reminderPerson: project.reminderPerson,
+    reminderDate: project.reminderDate,
+    blockedNode: project.status === "已暂停" ? project.currentNode : "",
+    businessLineId: project.businessLineId,
+  });
+  const recordedCount = nodes.filter((node) => node.startedAt).length;
+  const completedCount = nodes.filter((node) => node.completedAt).length;
+  return `
+    <section class="detail-card">
+      <div class="table-toolbar">
+        <div>
+          <h3>节点时间表</h3>
+          <p class="mini-text">接稿日期：${escapeHtml(dateString(project.startDate))} · 已进入 ${recordedCount} 个节点 · 已完成 ${completedCount} 个节点</p>
+        </div>
+      </div>
+      <div class="table-wrapper node-timeline-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>顺序</th>
+              <th>流程节点</th>
+              <th>状态</th>
+              <th>进入日期</th>
+              <th>完成日期</th>
+              <th>距上节点</th>
+              <th>本节点停留</th>
+              <th>负责人</th>
+              <th>备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${nodes.map((node, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td><strong>${escapeHtml(node.name)}</strong></td>
+                <td><span class="chip chip-status">${escapeHtml(node.status)}</span></td>
+                <td>${escapeHtml(node.startedAt || "未开始")}</td>
+                <td>${escapeHtml(node.completedAt || (node.status === "未开始" ? "-" : "进行中"))}</td>
+                <td>${escapeHtml(nodeGapText(nodes, index))}</td>
+                <td><span class="node-duration">${escapeHtml(nodeDurationText(node))}</span></td>
+                <td>${escapeHtml(node.owner || "未分配")}</td>
+                <td>${escapeHtml(node.note || "-")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
 function renderDrawer() {
   const project = state.projects.find((item) => item.id === state.selectedProjectId);
   if (!project) {
@@ -2565,6 +2776,7 @@ function renderDrawer() {
         ${reminderListHtml(project, { emptyText: "暂无提醒任务" })}
         ${reminderRecordHtml(project)}
       </section>
+      ${renderNodeTimelineHtml(project)}
       <section class="detail-card">
         <h3>风险与动作</h3>
         <div class="detail-actions">
@@ -2782,7 +2994,16 @@ async function saveProjectFromForm() {
     reminders: baseReminders,
     reminderPerson,
     reminderDate,
-    nodes: buildNodes(parseDate(existing ? existing.startDate : now), owner, status, currentNode, reminderPerson, reminderDate, status === "已暂停" ? currentNode : "", businessLineId),
+    nodes: mergeProjectNodes(existing?.nodes, {
+      startDate: existing ? existing.startDate : now,
+      owner,
+      status,
+      currentNode,
+      reminderPerson,
+      reminderDate,
+      blockedNode: status === "已暂停" ? currentNode : "",
+      businessLineId,
+    }),
     followUps: [{ time: dateTimeString(now), user: owner, progress: existing ? "更新了项目信息" : "创建了项目", nextAction: reminderNote }, ...(existing?.followUps || [])],
     logs: [{ time: dateTimeString(now), actor: owner, action: existing ? "编辑项目" : "创建项目", detail: `状态为「${status}」，当前节点为「${currentNode}」。` }, ...(existing?.logs || [])],
   });
@@ -2823,14 +3044,31 @@ function handleDrawerAction(action) {
   if (action === "pause") {
     current.status = current.status === "已暂停" ? "作者沟通中" : "已暂停";
     current.updatedAt = dateTimeString(new Date());
-    current.nodes = buildNodes(parseDate(current.startDate), current.owner, current.status, current.currentNode, current.reminderPerson, current.reminderDate, current.status === "已暂停" ? current.currentNode : "", current.businessLineId);
+    current.nodes = mergeProjectNodes(current.nodes, {
+      startDate: current.startDate,
+      owner: current.owner,
+      status: current.status,
+      currentNode: current.currentNode,
+      reminderPerson: current.reminderPerson,
+      reminderDate: current.reminderDate,
+      blockedNode: current.status === "已暂停" ? current.currentNode : "",
+      businessLineId: current.businessLineId,
+    });
   }
   if (action === "complete") {
     current.status = "已完成";
     const nodeNames = workflowNodeNamesForBusinessLine(current.businessLineId);
     current.currentNode = nodeNames[nodeNames.length - 1] || current.currentNode;
     current.updatedAt = dateTimeString(new Date());
-    current.nodes = buildNodes(parseDate(current.startDate), current.owner, current.status, current.currentNode, current.reminderPerson, current.reminderDate, "", current.businessLineId);
+    current.nodes = mergeProjectNodes(current.nodes, {
+      startDate: current.startDate,
+      owner: current.owner,
+      status: current.status,
+      currentNode: current.currentNode,
+      reminderPerson: current.reminderPerson,
+      reminderDate: current.reminderDate,
+      businessLineId: current.businessLineId,
+    });
   }
   saveProjects();
   render();
@@ -3149,7 +3387,16 @@ function rebuildProjectsForBusinessLine(businessLineId) {
       businessLineId,
       businessLineName: businessLineName(businessLineId),
       currentNode,
-      nodes: buildNodes(parseDate(project.startDate), project.owner, project.status, currentNode, project.reminderPerson, project.reminderDate, project.status === "已暂停" ? currentNode : "", businessLineId),
+      nodes: mergeProjectNodes(project.nodes, {
+        startDate: project.startDate,
+        owner: project.owner,
+        status: project.status,
+        currentNode,
+        reminderPerson: project.reminderPerson,
+        reminderDate: project.reminderDate,
+        blockedNode: project.status === "已暂停" ? currentNode : "",
+        businessLineId,
+      }),
     });
   });
 }
@@ -3176,7 +3423,16 @@ async function deleteBusinessLine(lineId) {
       businessLineId: fallback.id,
       businessLineName: fallback.name,
       currentNode,
-      nodes: buildNodes(parseDate(project.startDate), project.owner, project.status, currentNode, project.reminderPerson, project.reminderDate, project.status === "已暂停" ? currentNode : "", fallback.id),
+      nodes: mergeProjectNodes(project.nodes, {
+        startDate: project.startDate,
+        owner: project.owner,
+        status: project.status,
+        currentNode,
+        reminderPerson: project.reminderPerson,
+        reminderDate: project.reminderDate,
+        blockedNode: project.status === "已暂停" ? currentNode : "",
+        businessLineId: fallback.id,
+      }),
     });
   });
   if (state.selectedWorkflowLineId === lineId) state.selectedWorkflowLineId = fallback.id;
