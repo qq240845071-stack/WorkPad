@@ -2,7 +2,15 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 
-const { createDefaultState, DEFAULT_DEPARTMENTS, DEFAULT_ROLES, DEFAULT_PARTNERS, ROLE_PERMISSION_ROWS } = require("./demo-state");
+const {
+  createDefaultState,
+  DEFAULT_DEPARTMENTS,
+  DEFAULT_ROLES,
+  DEFAULT_PARTNERS,
+  DEFAULT_BUSINESS_LINES,
+  DEFAULT_BUSINESS_LINE_ID,
+  ROLE_PERMISSION_ROWS,
+} = require("./demo-state");
 
 const BLOB_PATHNAME = "workpad/state.json";
 
@@ -118,6 +126,47 @@ function normalizePartners(partners, projects = []) {
   return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"));
 }
 
+function normalizeWorkflowNode(node, index = 0) {
+  const source = node || {};
+  const name = textValue(source.name || `节点 ${index + 1}`);
+  return {
+    id: textValue(source.id || recordId("node", `${name}-${index}`)),
+    name,
+    ownerRole: textValue(source.ownerRole || "编辑"),
+    reminderRole: textValue(source.reminderRole || "项目主管"),
+    cycle: Math.max(0, Number(source.cycle) || 0),
+  };
+}
+
+function normalizeWorkflowNodes(nodes) {
+  const normalized = (Array.isArray(nodes) ? nodes : []).map(normalizeWorkflowNode).filter((node) => node.name);
+  return normalized.length ? normalized : DEFAULT_BUSINESS_LINES[0].nodes.map(normalizeWorkflowNode);
+}
+
+function normalizeBusinessLine(line, index = 0) {
+  const source = line || {};
+  const fallback = DEFAULT_BUSINESS_LINES.find((item) => item.id === source.id || item.name === source.name) || {};
+  const name = textValue(source.name || fallback.name || `业务线 ${index + 1}`);
+  return {
+    id: textValue(source.id || fallback.id || recordId("line", `${name}-${index}`)),
+    name,
+    workflowName: textValue(source.workflowName || fallback.workflowName || `${name}流程`),
+    description: textValue(source.description || fallback.description || "可在后台维护该业务线对应的流程节点。"),
+    nodes: normalizeWorkflowNodes(source.nodes || fallback.nodes),
+  };
+}
+
+function normalizeBusinessLines(lines, legacyWorkflowConfig = []) {
+  if (Array.isArray(lines) && lines.length) {
+    return lines.map(normalizeBusinessLine);
+  }
+  const defaults = clone(DEFAULT_BUSINESS_LINES).map(normalizeBusinessLine);
+  if (Array.isArray(legacyWorkflowConfig) && legacyWorkflowConfig.length) {
+    defaults[0].nodes = normalizeWorkflowNodes(legacyWorkflowConfig);
+  }
+  return defaults;
+}
+
 function normalizeReminderDate(value, fallback) {
   const raw = String(value || fallback || "").trim();
   if (!raw) return raw;
@@ -130,6 +179,8 @@ function normalizeReminderDate(value, fallback) {
 function normalizeProjects(projects) {
   return projects.map((project) => ({
     ...project,
+    businessLineId: project.businessLineId || DEFAULT_BUSINESS_LINE_ID,
+    businessLineName: project.businessLineName || "出版类业务线",
     reminderDate: normalizeReminderDate(project.reminderDate, project.planFinish),
     nodes: Array.isArray(project.nodes)
       ? project.nodes.map((node) => ({ ...node, reminderDate: normalizeReminderDate(node.reminderDate, node.planned) }))
@@ -143,15 +194,23 @@ function normalizeState(rawState) {
   const projects = Array.isArray(state.projects) && state.projects.length ? normalizeProjects(state.projects) : seed.projects;
   const teamMembers = Array.isArray(state.teamMembers) && state.teamMembers.length ? state.teamMembers : seed.teamMembers;
   const roles = normalizeRoles(state.roles);
+  const workflowConfig = Array.isArray(state.workflowConfig) && state.workflowConfig.length ? normalizeWorkflowNodes(state.workflowConfig) : seed.workflowConfig;
+  const businessLines = normalizeBusinessLines(state.businessLines, workflowConfig);
+  const normalizedProjects = projects.map((project) => {
+    const line = businessLines.find((item) => item.id === project.businessLineId) || businessLines[0];
+    return { ...project, businessLineId: line.id, businessLineName: line.name };
+  });
   return {
-    version: 1,
-    projects,
+    version: 2,
+    projects: normalizedProjects,
     teamMembers,
     departments: normalizeDepartments(state.departments, teamMembers),
     roles,
     permissionRows: normalizePermissionRows(state.permissionRows, roles),
-    partners: Array.isArray(state.partners) ? normalizePartners(state.partners, projects) : seed.partners,
-    workflowConfig: Array.isArray(state.workflowConfig) && state.workflowConfig.length ? state.workflowConfig : seed.workflowConfig,
+    partners: Array.isArray(state.partners) ? normalizePartners(state.partners, normalizedProjects) : seed.partners,
+    workflowConfig,
+    businessLines,
+    selectedWorkflowLineId: businessLines.some((line) => line.id === state.selectedWorkflowLineId) ? state.selectedWorkflowLineId : businessLines[0]?.id || DEFAULT_BUSINESS_LINE_ID,
     currentUserId: state.currentUserId || seed.currentUserId,
     wecomInbox: Array.isArray(state.wecomInbox) ? state.wecomInbox.slice(0, 200) : [],
   };

@@ -495,6 +495,13 @@ body::before {
   align-items: flex-end;
 }
 
+.workflow-config-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(280px, 1.4fr);
+  gap: 14px;
+  margin-top: 18px;
+}
+
 .filter-panel {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -517,6 +524,7 @@ body::before {
 .field input,
 .field select,
 .field textarea,
+.mini-field input,
 .mini-field select {
   width: 100%;
   min-width: 0;
@@ -531,6 +539,7 @@ body::before {
 .field input:focus,
 .field select:focus,
 .field textarea:focus,
+.mini-field input:focus,
 .mini-field select:focus {
   outline: 2px solid rgba(164, 72, 47, 0.16);
   border-color: rgba(164, 72, 47, 0.38);
@@ -1070,6 +1079,18 @@ th {
   z-index: 1;
 }
 
+.table-wrapper input,
+.table-wrapper select {
+  width: 100%;
+  min-width: 130px;
+  padding: 10px 12px;
+  border: 1px solid rgba(31, 36, 48, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+  font: inherit;
+}
+
 .table-action {
   padding: 8px 12px;
   border-radius: 999px;
@@ -1213,6 +1234,10 @@ th {
 
   .filter-panel {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .workflow-config-toolbar {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -12,6 +12,7 @@ const STATUS_ORDER = [
 ];
 
 const NODE_ORDER = ["作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", "尾印单"];
+const DEFAULT_BUSINESS_LINE_ID = "line-publishing";
 
 const TEAM_MEMBERS = [
   { id: "user-zhou", name: "周雯", role: "超级管理员", department: "出版一组", wecomUserId: "" },
@@ -41,16 +42,55 @@ const ROLE_PERMISSION_ROWS = [
 ];
 
 const WORKFLOW_CONFIG = [
-  { name: "作者沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
-  { name: "排版", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
-  { name: "一校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
-  { name: "二校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
-  { name: "三校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
-  { name: "样书", ownerRole: "编辑", reminderRole: "协同支持", cycle: 4 },
-  { name: "成品", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 6 },
-  { name: "合同", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 4 },
-  { name: "送货", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 3 },
-  { name: "尾印单", ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 },
+  { id: "node-author", name: "作者沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
+  { id: "node-layout", name: "排版", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
+  { id: "node-proof-1", name: "一校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
+  { id: "node-proof-2", name: "二校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
+  { id: "node-proof-3", name: "三校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
+  { id: "node-sample", name: "样书", ownerRole: "编辑", reminderRole: "协同支持", cycle: 4 },
+  { id: "node-product", name: "成品", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 6 },
+  { id: "node-contract", name: "合同", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 4 },
+  { id: "node-delivery", name: "送货", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 3 },
+  { id: "node-tail-print", name: "尾印单", ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 },
+];
+
+const DEFAULT_BUSINESS_LINES = [
+  {
+    id: DEFAULT_BUSINESS_LINE_ID,
+    name: "出版类业务线",
+    workflowName: "出版标准流程",
+    description: "出稿、排版校稿、样书、成品、合同、送货和尾印单。",
+    nodes: WORKFLOW_CONFIG,
+  },
+  {
+    id: "line-design",
+    name: "设计类业务线",
+    workflowName: "设计交付流程",
+    description: "适合封面、版式、物料和视觉设计项目。",
+    nodes: [
+      { id: "design-brief", name: "需求沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
+      { id: "design-style", name: "风格确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
+      { id: "design-draft", name: "初稿设计", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
+      { id: "design-revision", name: "修改确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 3 },
+      { id: "design-final", name: "定稿输出", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+      { id: "design-archive", name: "交付归档", ownerRole: "协同支持", reminderRole: "编辑", cycle: 1 },
+    ],
+  },
+  {
+    id: "line-production",
+    name: "生产类业务线",
+    workflowName: "生产执行流程",
+    description: "适合印制、装订、质检、包装和发货。",
+    nodes: [
+      { id: "production-order", name: "工单确认", ownerRole: "项目主管", reminderRole: "协同支持", cycle: 1 },
+      { id: "production-material", name: "材料准备", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+      { id: "production-prepress", name: "印前检查", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+      { id: "production-print", name: "生产制作", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 5 },
+      { id: "production-qc", name: "质检", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+      { id: "production-pack", name: "包装入库", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 1 },
+      { id: "production-ship", name: "发货交付", ownerRole: "协同支持", reminderRole: "编辑", cycle: 2 },
+    ],
+  },
 ];
 
 const DEFAULT_PARTNERS = [
@@ -111,10 +151,24 @@ function dateTimeString(value) {
   return `${dateString(date)} ${hours}:${minutes}`;
 }
 
-function buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode) {
-  const currentIndex = NODE_ORDER.indexOf(currentNode);
-  return NODE_ORDER.map((name, index) => {
-    const planned = addDays(startDate, index * 5 + 3);
+function workflowNodesForBusinessLine(businessLineId = DEFAULT_BUSINESS_LINE_ID) {
+  const line = DEFAULT_BUSINESS_LINES.find((item) => item.id === businessLineId) || DEFAULT_BUSINESS_LINES[0];
+  return line.nodes;
+}
+
+function businessLineName(businessLineId = DEFAULT_BUSINESS_LINE_ID) {
+  const line = DEFAULT_BUSINESS_LINES.find((item) => item.id === businessLineId) || DEFAULT_BUSINESS_LINES[0];
+  return line.name;
+}
+
+function buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode, businessLineId = DEFAULT_BUSINESS_LINE_ID) {
+  const workflowNodes = workflowNodesForBusinessLine(businessLineId);
+  const currentIndex = Math.max(0, workflowNodes.findIndex((node) => node.name === currentNode));
+  let dayCursor = 3;
+  return workflowNodes.map((workflowNode, index) => {
+    const name = workflowNode.name;
+    const planned = addDays(startDate, dayCursor);
+    dayCursor += Math.max(1, Number(workflowNode.cycle) || 3);
     let nodeStatus = "未开始";
     let completed = "";
     if (status === "已完成") {
@@ -165,6 +219,8 @@ function createSeedProject(row) {
   return {
     id: `demo-${code}`,
     source: "demo",
+    businessLineId: DEFAULT_BUSINESS_LINE_ID,
+    businessLineName: businessLineName(DEFAULT_BUSINESS_LINE_ID),
     code,
     title,
     author,
@@ -181,7 +237,7 @@ function createSeedProject(row) {
     riskNote,
     reminderPerson,
     reminderDate: dateTimeString(reminderDate),
-    nodes: buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode),
+    nodes: buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode, DEFAULT_BUSINESS_LINE_ID),
     followUps: [
       { time: dateTimeString(addDays(updatedAt, -3)), user: owner, progress: summary, nextAction },
       { time: dateTimeString(updatedAt), user: owner, progress: riskNote, nextAction },
@@ -208,7 +264,7 @@ function defaultPermissionRows(roles = DEFAULT_ROLES) {
 
 function createDefaultState() {
   return {
-    version: 1,
+    version: 2,
     projects: PROJECT_BLUEPRINTS.map(createSeedProject),
     teamMembers: clone(TEAM_MEMBERS),
     departments: clone(DEFAULT_DEPARTMENTS),
@@ -216,6 +272,8 @@ function createDefaultState() {
     permissionRows: defaultPermissionRows(DEFAULT_ROLES),
     partners: clone(DEFAULT_PARTNERS),
     workflowConfig: clone(WORKFLOW_CONFIG),
+    businessLines: clone(DEFAULT_BUSINESS_LINES),
+    selectedWorkflowLineId: DEFAULT_BUSINESS_LINE_ID,
     currentUserId: TEAM_MEMBERS[0].id,
     wecomInbox: [],
   };
@@ -228,6 +286,8 @@ module.exports = {
   DEFAULT_DEPARTMENTS,
   DEFAULT_ROLES,
   WORKFLOW_CONFIG,
+  DEFAULT_BUSINESS_LINES,
+  DEFAULT_BUSINESS_LINE_ID,
   DEFAULT_PARTNERS,
   ROLE_PERMISSION_ROWS,
   PROJECT_BLUEPRINTS,

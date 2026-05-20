@@ -16,6 +16,7 @@ const STATUS_ORDER = [
 ];
 
 const NODE_ORDER = ["作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", "尾印单"];
+const DEFAULT_BUSINESS_LINE_ID = "line-publishing";
 
 const STATUS_META = {
   待启动: { tone: "#8d6e46", description: "尚未正式进入执行节奏" },
@@ -71,16 +72,55 @@ const ROLE_PERMISSION_ROWS = [
 ];
 
 const WORKFLOW_CONFIG = [
-  { name: "作者沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
-  { name: "排版", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
-  { name: "一校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
-  { name: "二校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
-  { name: "三校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
-  { name: "样书", ownerRole: "编辑", reminderRole: "协同支持", cycle: 4 },
-  { name: "成品", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 6 },
-  { name: "合同", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 4 },
-  { name: "送货", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 3 },
-  { name: "尾印单", ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 },
+  { id: "node-author", name: "作者沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
+  { id: "node-layout", name: "排版", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
+  { id: "node-proof-1", name: "一校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
+  { id: "node-proof-2", name: "二校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
+  { id: "node-proof-3", name: "三校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
+  { id: "node-sample", name: "样书", ownerRole: "编辑", reminderRole: "协同支持", cycle: 4 },
+  { id: "node-product", name: "成品", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 6 },
+  { id: "node-contract", name: "合同", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 4 },
+  { id: "node-delivery", name: "送货", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 3 },
+  { id: "node-tail-print", name: "尾印单", ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 },
+];
+
+const DEFAULT_BUSINESS_LINES = [
+  {
+    id: DEFAULT_BUSINESS_LINE_ID,
+    name: "出版类业务线",
+    workflowName: "出版标准流程",
+    description: "出稿、排版校稿、样书、成品、合同、送货和尾印单。",
+    nodes: WORKFLOW_CONFIG,
+  },
+  {
+    id: "line-design",
+    name: "设计类业务线",
+    workflowName: "设计交付流程",
+    description: "适合封面、版式、物料和视觉设计项目。",
+    nodes: [
+      { id: "design-brief", name: "需求沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
+      { id: "design-style", name: "风格确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
+      { id: "design-draft", name: "初稿设计", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
+      { id: "design-revision", name: "修改确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 3 },
+      { id: "design-final", name: "定稿输出", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+      { id: "design-archive", name: "交付归档", ownerRole: "协同支持", reminderRole: "编辑", cycle: 1 },
+    ],
+  },
+  {
+    id: "line-production",
+    name: "生产类业务线",
+    workflowName: "生产执行流程",
+    description: "适合印制、装订、质检、包装和发货。",
+    nodes: [
+      { id: "production-order", name: "工单确认", ownerRole: "项目主管", reminderRole: "协同支持", cycle: 1 },
+      { id: "production-material", name: "材料准备", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+      { id: "production-prepress", name: "印前检查", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+      { id: "production-print", name: "生产制作", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 5 },
+      { id: "production-qc", name: "质检", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+      { id: "production-pack", name: "包装入库", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 1 },
+      { id: "production-ship", name: "发货交付", ownerRole: "协同支持", reminderRole: "编辑", cycle: 2 },
+    ],
+  },
 ];
 
 const DEFAULT_PARTNERS = [
@@ -120,6 +160,7 @@ const ADMIN_TAB_RULES = {
   roles: ["管理权限"],
   permissions: ["管理权限"],
   partners: ["管理合作方"],
+  businessLines: ["管理流程节点"],
   workflow: ["管理流程节点"],
 };
 
@@ -131,6 +172,7 @@ const state = {
   permissionRows: [],
   partners: [],
   workflowConfig: [],
+  businessLines: [],
   wecomInbox: [],
   filters: { search: "", owner: "全部", status: "全部", risk: "全部", update: "全部", reminder: "全部" },
   selectedProjectId: null,
@@ -139,6 +181,7 @@ const state = {
   displayMode: "project",
   currentUserId: TEAM_MEMBERS[0].id,
   adminTab: "overview",
+  selectedWorkflowLineId: DEFAULT_BUSINESS_LINE_ID,
   adminEditingMode: "",
   adminEditingId: "",
   aiChat: [
@@ -222,6 +265,7 @@ const elements = {
   formAuthor: document.getElementById("formAuthor"),
   formCode: document.getElementById("formCode"),
   formOwner: document.getElementById("formOwner"),
+  formBusinessLine: document.getElementById("formBusinessLine"),
   formPartner: document.getElementById("formPartner"),
   formStatus: document.getElementById("formStatus"),
   formCurrentNode: document.getElementById("formCurrentNode"),
@@ -341,6 +385,108 @@ function normalizePartners(partners, projects = []) {
   return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"));
 }
 
+function normalizeWorkflowNode(node, index = 0) {
+  const source = node || {};
+  const name = textValue(source.name || `节点 ${index + 1}`);
+  return {
+    id: textValue(source.id || recordId("node", `${name}-${index}`)),
+    name,
+    ownerRole: textValue(source.ownerRole || "编辑"),
+    reminderRole: textValue(source.reminderRole || "项目主管"),
+    cycle: Math.max(0, Number(source.cycle) || 0),
+  };
+}
+
+function normalizeWorkflowNodes(nodes) {
+  const normalized = (Array.isArray(nodes) ? nodes : []).map(normalizeWorkflowNode).filter((node) => node.name);
+  return normalized.length ? normalized : WORKFLOW_CONFIG.map(normalizeWorkflowNode);
+}
+
+function defaultBusinessLines() {
+  return DEFAULT_BUSINESS_LINES.map((line, index) => ({
+    id: textValue(line.id || recordId("line", `${line.name}-${index}`)),
+    name: textValue(line.name),
+    workflowName: textValue(line.workflowName || `${line.name}流程`),
+    description: textValue(line.description || "可在后台维护该业务线对应的流程节点。"),
+    nodes: normalizeWorkflowNodes(line.nodes),
+  }));
+}
+
+function normalizeBusinessLine(line, index = 0) {
+  const source = line || {};
+  const fallback = DEFAULT_BUSINESS_LINES.find((item) => item.id === source.id || item.name === source.name) || {};
+  const name = textValue(source.name || fallback.name || `业务线 ${index + 1}`);
+  return {
+    id: textValue(source.id || fallback.id || recordId("line", `${name}-${index}`)),
+    name,
+    workflowName: textValue(source.workflowName || fallback.workflowName || `${name}流程`),
+    description: textValue(source.description || fallback.description || "可在后台维护该业务线对应的流程节点。"),
+    nodes: normalizeWorkflowNodes(source.nodes || fallback.nodes),
+  };
+}
+
+function normalizeBusinessLines(lines, legacyWorkflowConfig = []) {
+  if (Array.isArray(lines) && lines.length) {
+    const byId = new Map();
+    lines.forEach((line, index) => {
+      const normalized = normalizeBusinessLine(line, index);
+      byId.set(normalized.id, normalized);
+    });
+    return Array.from(byId.values());
+  }
+  const defaults = defaultBusinessLines();
+  if (Array.isArray(legacyWorkflowConfig) && legacyWorkflowConfig.length) {
+    defaults[0].nodes = normalizeWorkflowNodes(legacyWorkflowConfig);
+  }
+  return defaults;
+}
+
+function businessLineOptions() {
+  state.businessLines = normalizeBusinessLines(state.businessLines, state.workflowConfig);
+  if (!state.businessLines.some((line) => line.id === state.selectedWorkflowLineId)) {
+    state.selectedWorkflowLineId = state.businessLines[0]?.id || DEFAULT_BUSINESS_LINE_ID;
+  }
+  state.workflowConfig = workflowNodesForBusinessLine(DEFAULT_BUSINESS_LINE_ID);
+  return state.businessLines;
+}
+
+function businessLineById(id) {
+  return businessLineOptions().find((line) => line.id === id) || businessLineOptions()[0];
+}
+
+function businessLineIdForProject(project = {}) {
+  const lines = businessLineOptions();
+  const byId = lines.find((line) => line.id === project.businessLineId);
+  if (byId) return byId.id;
+  const byName = lines.find((line) => line.name === project.businessLine || line.name === project.businessLineName);
+  return byName?.id || DEFAULT_BUSINESS_LINE_ID;
+}
+
+function businessLineName(id) {
+  return businessLineById(id)?.name || "出版类业务线";
+}
+
+function workflowNodesForBusinessLine(id) {
+  const lines = Array.isArray(state.businessLines) && state.businessLines.length ? state.businessLines : defaultBusinessLines();
+  const line = lines.find((item) => item.id === id) || lines.find((item) => item.id === DEFAULT_BUSINESS_LINE_ID) || lines[0];
+  return normalizeWorkflowNodes(line?.nodes);
+}
+
+function workflowNodeNamesForBusinessLine(id) {
+  return workflowNodesForBusinessLine(id).map((node) => node.name);
+}
+
+function defaultNodeForStatus(status, businessLineId = DEFAULT_BUSINESS_LINE_ID) {
+  const names = workflowNodeNamesForBusinessLine(businessLineId);
+  const mapped = STATUS_TO_NODE[status];
+  if (mapped && names.includes(mapped)) return mapped;
+  return names[0] || "未设置节点";
+}
+
+function allWorkflowNodes() {
+  return businessLineOptions().flatMap((line) => line.nodes.map((node) => ({ ...node, businessLineId: line.id, businessLineName: line.name })));
+}
+
 function normalizeTeamMembers(members) {
   return (Array.isArray(members) ? members : []).map((member) => {
     const fallback = TEAM_MEMBERS.find((item) => item.id === member.id || item.name === member.name) || {};
@@ -367,7 +513,9 @@ function loadSettings() {
       state.roles = normalizeRoles(parsed.roles);
       state.permissionRows = normalizePermissionRows(parsed.permissionRows, state.roles);
       state.partners = Array.isArray(parsed.partners) ? normalizePartners(parsed.partners) : clone(DEFAULT_PARTNERS);
-      state.workflowConfig = Array.isArray(parsed.workflowConfig) && parsed.workflowConfig.length ? parsed.workflowConfig : clone(WORKFLOW_CONFIG);
+      state.workflowConfig = Array.isArray(parsed.workflowConfig) && parsed.workflowConfig.length ? normalizeWorkflowNodes(parsed.workflowConfig) : normalizeWorkflowNodes(WORKFLOW_CONFIG);
+      state.businessLines = normalizeBusinessLines(parsed.businessLines, state.workflowConfig);
+      state.selectedWorkflowLineId = state.businessLines.some((line) => line.id === parsed.selectedWorkflowLineId) ? parsed.selectedWorkflowLineId : state.businessLines[0].id;
       state.currentUserId = parsed.currentUserId || TEAM_MEMBERS[0].id;
       return;
     }
@@ -378,7 +526,9 @@ function loadSettings() {
   state.roles = normalizeRoles(DEFAULT_ROLES);
   state.permissionRows = defaultPermissionRows(state.roles);
   state.partners = clone(DEFAULT_PARTNERS);
-  state.workflowConfig = clone(WORKFLOW_CONFIG);
+  state.workflowConfig = normalizeWorkflowNodes(WORKFLOW_CONFIG);
+  state.businessLines = defaultBusinessLines();
+  state.selectedWorkflowLineId = DEFAULT_BUSINESS_LINE_ID;
 }
 
 function saveSettings() {
@@ -391,6 +541,8 @@ function saveSettings() {
       permissionRows: state.permissionRows,
       partners: state.partners,
       workflowConfig: state.workflowConfig,
+      businessLines: state.businessLines,
+      selectedWorkflowLineId: state.selectedWorkflowLineId,
       currentUserId: state.currentUserId,
     }),
   );
@@ -399,7 +551,7 @@ function saveSettings() {
 
 function exportStateSnapshot() {
   return {
-    version: 1,
+    version: 2,
     projects: state.projects,
     teamMembers: state.teamMembers,
     departments: state.departments,
@@ -407,6 +559,8 @@ function exportStateSnapshot() {
     permissionRows: state.permissionRows,
     partners: state.partners,
     workflowConfig: state.workflowConfig,
+    businessLines: state.businessLines,
+    selectedWorkflowLineId: state.selectedWorkflowLineId,
     currentUserId: state.currentUserId,
     wecomInbox: state.wecomInbox,
   };
@@ -418,7 +572,9 @@ function applyStateSnapshot(snapshot) {
   state.departments = normalizeDepartments(snapshot.departments, state.teamMembers);
   state.roles = normalizeRoles(snapshot.roles);
   state.permissionRows = normalizePermissionRows(snapshot.permissionRows, state.roles);
-  state.workflowConfig = Array.isArray(snapshot.workflowConfig) && snapshot.workflowConfig.length ? snapshot.workflowConfig : clone(WORKFLOW_CONFIG);
+  state.workflowConfig = Array.isArray(snapshot.workflowConfig) && snapshot.workflowConfig.length ? normalizeWorkflowNodes(snapshot.workflowConfig) : normalizeWorkflowNodes(WORKFLOW_CONFIG);
+  state.businessLines = normalizeBusinessLines(snapshot.businessLines, state.workflowConfig);
+  state.selectedWorkflowLineId = state.businessLines.some((line) => line.id === snapshot.selectedWorkflowLineId) ? snapshot.selectedWorkflowLineId : state.businessLines[0].id;
   state.projects = Array.isArray(snapshot.projects) && snapshot.projects.length ? snapshot.projects.map(normalizeProject) : seedProjects();
   state.partners = Array.isArray(snapshot.partners) ? normalizePartners(snapshot.partners, state.projects) : clone(DEFAULT_PARTNERS);
   state.wecomInbox = Array.isArray(snapshot.wecomInbox) ? snapshot.wecomInbox : [];
@@ -433,6 +589,8 @@ function applyStateSnapshot(snapshot) {
       permissionRows: state.permissionRows,
       partners: state.partners,
       workflowConfig: state.workflowConfig,
+      businessLines: state.businessLines,
+      selectedWorkflowLineId: state.selectedWorkflowLineId,
       currentUserId: state.currentUserId,
     }),
   );
@@ -593,10 +751,14 @@ function tint(hex, opacity) {
   return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
 }
 
-function buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode) {
-  const currentIndex = NODE_ORDER.indexOf(currentNode);
-  return NODE_ORDER.map((name, index) => {
-    const planned = addDays(startDate, index * 5 + 3);
+function buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode, businessLineId = DEFAULT_BUSINESS_LINE_ID) {
+  const workflowNodes = workflowNodesForBusinessLine(businessLineId);
+  const currentIndex = Math.max(0, workflowNodes.findIndex((node) => node.name === currentNode));
+  let dayCursor = 3;
+  return workflowNodes.map((workflowNode, index) => {
+    const name = workflowNode.name;
+    const planned = addDays(startDate, dayCursor);
+    dayCursor += Math.max(1, Number(workflowNode.cycle) || 3);
     let nodeStatus = "未开始";
     let completed = "";
     if (status === "已完成") {
@@ -647,6 +809,8 @@ function createSeedProject(row) {
   return {
     id: uid(),
     source: "demo",
+    businessLineId: DEFAULT_BUSINESS_LINE_ID,
+    businessLineName: businessLineName(DEFAULT_BUSINESS_LINE_ID),
     code,
     title,
     author,
@@ -663,7 +827,7 @@ function createSeedProject(row) {
     riskNote,
     reminderPerson,
     reminderDate: dateTimeString(reminderDate),
-    nodes: buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode),
+    nodes: buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode, DEFAULT_BUSINESS_LINE_ID),
     followUps: [
       { time: dateTimeString(addDays(updatedAt, -3)), user: owner, progress: summary, nextAction },
       { time: dateTimeString(updatedAt), user: owner, progress: riskNote, nextAction },
@@ -692,16 +856,20 @@ function findPartnerProfile(name) {
 
 function normalizeProject(project) {
   const status = STATUS_ORDER.includes(project.status) ? project.status : "待启动";
-  const currentNode = NODE_ORDER.includes(project.currentNode) ? project.currentNode : STATUS_TO_NODE[status];
+  const businessLineId = businessLineIdForProject(project);
+  const workflowNodeNames = workflowNodeNamesForBusinessLine(businessLineId);
+  const currentNode = workflowNodeNames.includes(project.currentNode) ? project.currentNode : defaultNodeForStatus(status, businessLineId);
   const owner = project.owner || "未分配";
   const reminderPerson = project.reminderPerson || owner;
   const reminderDate = project.reminderDate || project.planFinish || dateString(new Date());
   const startDate = parseDate(project.startDate || new Date());
   const normalizedNodes = Array.isArray(project.nodes) && project.nodes.length
     ? project.nodes.map((node) => ({ ...node, reminderDate: dateTimeString(node.reminderDate || node.planned || reminderDate) }))
-    : buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate);
+    : buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, "", businessLineId);
   return {
     ...project,
+    businessLineId,
+    businessLineName: businessLineName(businessLineId),
     status,
     currentNode,
     owner,
@@ -851,7 +1019,7 @@ function filteredProjects() {
   const search = state.filters.search.trim().toLowerCase();
   return visibleProjects().filter((project) => {
     const risk = getProjectRisk(project);
-    const matchesSearch = !search || [project.title, project.author, project.code].some((item) => String(item).toLowerCase().includes(search));
+    const matchesSearch = !search || [project.title, project.author, project.code, businessLineName(project.businessLineId)].some((item) => String(item).toLowerCase().includes(search));
     const matchesOwner = state.filters.owner === "全部" || project.owner === state.filters.owner;
     const matchesStatus = state.filters.status === "全部" || project.status === state.filters.status;
     const matchesRisk = state.filters.risk === "全部" || risk.level === state.filters.risk;
@@ -878,6 +1046,12 @@ function renderIdentity() {
   elements.currentUserRole.textContent = `${currentUser().role} · ${currentUser().department}`;
 }
 
+function renderCurrentNodeOptions(businessLineId = DEFAULT_BUSINESS_LINE_ID, selectedNode = "") {
+  const nodes = workflowNodeNamesForBusinessLine(businessLineId);
+  elements.formCurrentNode.innerHTML = nodes.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
+  elements.formCurrentNode.value = nodes.includes(selectedNode) ? selectedNode : nodes[0] || "";
+}
+
 function syncFiltersAndForm() {
   const owners = [...new Set(state.teamMembers.map((item) => item.name).concat(visibleProjects().map((item) => item.owner)))].sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
   elements.ownerFilter.innerHTML = [`<option value="全部">全部负责人</option>`, ...owners.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`)].join("");
@@ -885,7 +1059,8 @@ function syncFiltersAndForm() {
   elements.statusFilter.innerHTML = [`<option value="全部">全部状态</option>`, ...STATUS_ORDER.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`)].join("");
   elements.statusFilter.value = state.filters.status;
   elements.formStatus.innerHTML = STATUS_ORDER.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
-  elements.formCurrentNode.innerHTML = NODE_ORDER.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
+  elements.formBusinessLine.innerHTML = businessLineOptions().map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join("");
+  renderCurrentNodeOptions(elements.formBusinessLine.value || DEFAULT_BUSINESS_LINE_ID, elements.formCurrentNode.value);
   elements.formPartner.innerHTML = [`<option value="">未选择合作方</option>`, ...getPartners().map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`)].join("");
   elements.newProjectButton.disabled = !hasPermission("编辑项目状态");
   elements.newProjectButton.title = hasPermission("编辑项目状态") ? "" : "当前身份没有项目编辑权限";
@@ -983,6 +1158,7 @@ function renderBoard(projects) {
                   </div>
                   <div class="project-card-meta">
                     <div>负责人：${escapeHtml(project.owner)}</div>
+                    <div>业务线：${escapeHtml(businessLineName(project.businessLineId))}</div>
                     <div>合作方：${escapeHtml(project.partner || "未设置")}</div>
                     <div>当前节点：${escapeHtml(project.currentNode)}</div>
                     <div>提醒：${escapeHtml(project.reminderPerson)} · ${escapeHtml(reminderTimeText(project.reminderDate))} · ${escapeHtml(reminderStatus(project))}</div>
@@ -1022,7 +1198,7 @@ function renderPersonBoard(projects) {
             <div class="person-project-item">
               <button type="button" data-open-project="${escapeHtml(project.id)}">
                 <strong>${escapeHtml(project.title)}</strong>
-                <div class="mini-text">${escapeHtml(project.status)} · ${escapeHtml(project.currentNode)} · 合作方 ${escapeHtml(project.partner || "未设置")}</div>
+                <div class="mini-text">${escapeHtml(businessLineName(project.businessLineId))} · ${escapeHtml(project.status)} · ${escapeHtml(project.currentNode)} · 合作方 ${escapeHtml(project.partner || "未设置")}</div>
               </button>
             </div>`).join("") : `<div class="empty-state">当前没有分配到项目。</div>`}
         </div>
@@ -1035,7 +1211,7 @@ function adminCards() {
   return [
     ["人员总数", String(state.teamMembers.length), "含编辑、主管和协同支持", "#23404d"],
     ["合作方总数", String(getPartners().length), "项目录入时通过选择进入", "#a4482f"],
-    ["角色模板", String(roleOptions().length), "后台可维护角色并分配权限", "#697443"],
+    ["业务线", String(businessLineOptions().length), "不同业务线可配置不同流程", "#697443"],
     ["在途负责人", String(activeOwners), "当前至少有一个在途项目的成员", "#b67c1f"],
   ];
 }
@@ -1058,7 +1234,8 @@ function renderAdminNav() {
     ["roles", "角色管理", "建立角色并接入权限矩阵"],
     ["permissions", "权限分配", "按角色查看权限矩阵"],
     ["partners", "合作方管理", "合作方主数据和项目引用"],
-    ["workflow", "流程节点配置", "节点说明、提醒角色和标准节奏"],
+    ["businessLines", "业务线管理", "出版、设计、生产等业务分类"],
+    ["workflow", "流程节点配置", "按业务线维护节点增删改"],
   ];
   const visibleTabs = tabs.filter(([key]) => allowedAdminTabs().includes(key));
   elements.adminTabNav.innerHTML = visibleTabs.map(([key, title, desc]) => `
@@ -1368,7 +1545,8 @@ function renderAdminContent() {
     roles: ["角色管理", `当前共 ${roleOptions().length} 个角色，权限矩阵会按角色同步展示。`],
     permissions: ["权限分配", "当前可以在这里调整角色权限矩阵。"],
     partners: ["合作方管理", `当前已整理 ${getPartners().length} 个合作方，项目录入时已改成通过选择进入。`],
-    workflow: ["流程节点配置", "节点名称、提醒角色和标准节奏先在后台集中展示。"],
+    businessLines: ["业务线管理", `当前共 ${businessLineOptions().length} 条业务线，可分别维护流程名称和说明。`],
+    workflow: ["流程节点配置", "可以按业务线增删流程节点、定义节点名称、负责人角色、提醒角色和标准周期。"],
   };
   elements.adminTitle.textContent = titles[state.adminTab][0];
   elements.adminMeta.textContent = titles[state.adminTab][1];
@@ -1386,6 +1564,7 @@ function renderAdminContent() {
               <span class="chip chip-status">角色管理</span>
               <span class="chip chip-status">权限矩阵</span>
               <span class="chip chip-status">合作方管理</span>
+              <span class="chip chip-status">业务线管理</span>
               <span class="chip chip-status">流程节点配置</span>
           </div>
         </section>
@@ -1503,7 +1682,7 @@ function renderAdminContent() {
             <tbody>
               ${roleOptions().map((role) => {
                 const memberCount = state.teamMembers.filter((member) => member.role === role.name).length;
-                const workflowCount = state.workflowConfig.filter((node) => node.ownerRole === role.name || node.reminderRole === role.name).length;
+                const workflowCount = allWorkflowNodes().filter((node) => node.ownerRole === role.name || node.reminderRole === role.name).length;
                 return `
                   <tr>
                     <td><span class="permission-badge">${escapeHtml(role.name)}</span></td>
@@ -1585,23 +1764,100 @@ function renderAdminContent() {
               }).join("")}
             </tbody>
         </table>
-      </div>`;
+    </div>`;
     return;
   }
 
+    if (state.adminTab === "businessLines") {
+      const canManageWorkflow = hasPermission("管理流程节点");
+      elements.adminContent.innerHTML = `
+      <div class="data-panel-stack">
+        <section class="data-panel">
+          <div class="table-toolbar">
+            <div>
+              <h3>业务线列表</h3>
+              <div class="mini-text">业务线决定一个项目可选择哪套流程节点。出版、设计、生产可以各走各的节点。</div>
+            </div>
+            <button type="button" class="button button-primary" data-admin-action="add-business-line" ${canManageWorkflow ? "" : "disabled"}>新增业务线</button>
+          </div>
+        </section>
+      </div>
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>业务线</th><th>流程名称</th><th>节点数</th><th>引用项目</th><th>说明</th><th>操作</th></tr></thead>
+            <tbody>
+              ${businessLineOptions().map((line) => {
+                const projectCount = state.projects.filter((project) => businessLineIdForProject(project) === line.id).length;
+                return `
+                  <tr>
+                    <td><span class="permission-badge">${escapeHtml(line.name)}</span></td>
+                    <td>${escapeHtml(line.workflowName)}</td>
+                    <td>${line.nodes.length}</td>
+                    <td>${projectCount}</td>
+                    <td>${escapeHtml(line.description || "可在后台维护该业务线对应的流程节点。")}</td>
+                    <td>
+                      <div class="table-action-group">
+                        <button type="button" class="table-action" data-admin-action="edit-business-line" data-business-line-id="${escapeHtml(line.id)}" ${canManageWorkflow ? "" : "disabled"}>编辑</button>
+                        <button type="button" class="table-action table-action-danger" data-admin-action="delete-business-line" data-business-line-id="${escapeHtml(line.id)}" ${canManageWorkflow ? "" : "disabled"}>删除</button>
+                      </div>
+                    </td>
+                  </tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>`;
+      return;
+    }
+
     const canManageWorkflow = hasPermission("管理流程节点");
     const workflowRoles = roleOptions();
+    const workflowLine = businessLineById(state.selectedWorkflowLineId);
     elements.adminContent.innerHTML = `
+      <div class="data-panel-stack">
+        <section class="data-panel">
+          <div class="table-toolbar">
+            <div>
+              <h3>按业务线配置节点</h3>
+              <div class="mini-text">先选择业务线，再维护该业务线自己的流程名称、节点名称、角色和周期。</div>
+            </div>
+            <button type="button" class="button button-primary" data-admin-action="add-workflow-node" ${canManageWorkflow ? "" : "disabled"}>新增节点</button>
+          </div>
+          <div class="workflow-config-toolbar">
+            <label class="mini-field">
+              <span>当前业务线</span>
+              <select data-workflow-line-select ${canManageWorkflow ? "" : "disabled"}>
+                ${businessLineOptions().map((line) => `<option value="${escapeHtml(line.id)}" ${workflowLine.id === line.id ? "selected" : ""}>${escapeHtml(line.name)}</option>`).join("")}
+              </select>
+            </label>
+            <label class="mini-field">
+              <span>流程名称</span>
+              <input value="${escapeHtml(workflowLine.workflowName)}" data-workflow-line-field="workflowName" ${canManageWorkflow ? "" : "disabled"} />
+            </label>
+            <label class="mini-field workflow-description-field">
+              <span>业务线说明</span>
+              <input value="${escapeHtml(workflowLine.description || "")}" data-workflow-line-field="description" ${canManageWorkflow ? "" : "disabled"} />
+            </label>
+          </div>
+        </section>
+      </div>
       <div class="table-wrapper">
         <table>
-          <thead><tr><th>节点</th><th>默认负责人角色</th><th>默认提醒角色</th><th>标准周期（天）</th></tr></thead>
+          <thead><tr><th>顺序</th><th>节点名称</th><th>默认负责人角色</th><th>默认提醒角色</th><th>标准周期（天）</th><th>操作</th></tr></thead>
           <tbody>
-            ${state.workflowConfig.map((node) => `
+            ${workflowLine.nodes.map((node, index) => `
               <tr>
-                <td>${escapeHtml(node.name)}</td>
-                <td><select data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="ownerRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.ownerRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
-                <td><select data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="reminderRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.reminderRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
-                <td><input type="number" value="${node.cycle}" data-workflow-index="${state.workflowConfig.indexOf(node)}" data-workflow-field="cycle" ${canManageWorkflow ? "" : "disabled"} /></td>
+                <td>${index + 1}</td>
+                <td><input type="text" value="${escapeHtml(node.name)}" data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="name" ${canManageWorkflow ? "" : "disabled"} /></td>
+                <td><select data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="ownerRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.ownerRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
+                <td><select data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="reminderRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.reminderRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
+                <td><input type="number" min="0" value="${node.cycle}" data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="cycle" ${canManageWorkflow ? "" : "disabled"} /></td>
+                <td>
+                  <div class="table-action-group">
+                    <button type="button" class="table-action" data-admin-action="move-workflow-node-up" data-workflow-node-id="${escapeHtml(node.id)}" ${canManageWorkflow && index > 0 ? "" : "disabled"}>上移</button>
+                    <button type="button" class="table-action" data-admin-action="move-workflow-node-down" data-workflow-node-id="${escapeHtml(node.id)}" ${canManageWorkflow && index < workflowLine.nodes.length - 1 ? "" : "disabled"}>下移</button>
+                    <button type="button" class="table-action table-action-danger" data-admin-action="delete-workflow-node" data-workflow-node-id="${escapeHtml(node.id)}" ${canManageWorkflow ? "" : "disabled"}>删除</button>
+                  </div>
+                </td>
               </tr>`).join("")}
         </tbody>
       </table>
@@ -1636,6 +1892,7 @@ function renderDrawer() {
         <div class="overview-grid">
           <div class="overview-item"><span>项目编号</span><strong>${escapeHtml(project.code)}</strong></div>
           <div class="overview-item"><span>负责人</span><strong>${escapeHtml(project.owner)}</strong></div>
+          <div class="overview-item"><span>业务线</span><strong>${escapeHtml(businessLineName(project.businessLineId))}</strong></div>
           <div class="overview-item"><span>合作方</span><strong>${escapeHtml(project.partner || "未设置")}</strong></div>
           <div class="overview-item"><span>当前节点</span><strong>${escapeHtml(project.currentNode)}</strong></div>
           <div class="overview-item"><span>提醒人</span><strong>${escapeHtml(project.reminderPerson)}</strong></div>
@@ -1676,9 +1933,11 @@ function openModal(project) {
   elements.formAuthor.value = current ? current.author : "";
   elements.formCode.value = current ? current.code : "";
   elements.formOwner.value = current ? current.owner : currentUser().name;
+  const businessLineId = current ? businessLineIdForProject(current) : DEFAULT_BUSINESS_LINE_ID;
+  elements.formBusinessLine.value = businessLineId;
   elements.formPartner.value = current ? current.partner : "";
   elements.formStatus.value = current ? current.status : "待启动";
-  elements.formCurrentNode.value = current ? current.currentNode : "作者沟通";
+  renderCurrentNodeOptions(businessLineId, current ? current.currentNode : defaultNodeForStatus("待启动", businessLineId));
   elements.formPlanFinish.value = current ? dateString(current.planFinish) : dateString(addDays(new Date(), 14));
   elements.formSummary.value = current ? current.summary : "";
   elements.formNextAction.value = current ? current.nextAction : "";
@@ -1700,6 +1959,7 @@ function openAdminModal(mode, payload) {
   if (mode === "department" && !hasPermission("管理人员")) return;
   if (mode === "role" && !hasPermission("管理权限")) return;
   if (mode === "partner" && !hasPermission("管理合作方")) return;
+  if (mode === "businessLine" && !hasPermission("管理流程节点")) return;
   state.adminEditingMode = mode;
   state.adminEditingId = payload?.id || payload || "";
   if (mode === "user") {
@@ -1782,6 +2042,22 @@ function openAdminModal(mode, payload) {
         </div>
       </form>`;
   }
+  if (mode === "businessLine") {
+    const line = businessLineOptions().find((item) => item.id === state.adminEditingId);
+    elements.adminModalTitle.textContent = line ? "编辑业务线" : "新增业务线";
+    elements.adminModalContent.innerHTML = `
+      <form id="adminBusinessLineForm" class="project-form">
+        <div class="modal-form-grid">
+          <label class="field"><span>业务线名称</span><input name="name" type="text" value="${escapeHtml(line?.name || "")}" placeholder="例如 出版类业务线" required /></label>
+          <label class="field"><span>流程名称</span><input name="workflowName" type="text" value="${escapeHtml(line?.workflowName || "")}" placeholder="例如 出版标准流程" required /></label>
+          <label class="field field-full"><span>业务线说明</span><input name="description" type="text" value="${escapeHtml(line?.description || "")}" placeholder="说明这条业务线适用于哪些订单" /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="button button-ghost" data-admin-close="true">取消</button>
+          <button type="submit" class="button button-primary">保存业务线</button>
+        </div>
+      </form>`;
+  }
   elements.adminModal.classList.add("is-open");
   elements.adminModal.setAttribute("aria-hidden", "false");
 }
@@ -1799,6 +2075,7 @@ async function saveProjectFromForm() {
   const now = new Date();
   const existing = state.projects.find((item) => item.id === elements.formInternalId.value);
   const status = elements.formStatus.value;
+  const businessLineId = elements.formBusinessLine.value || DEFAULT_BUSINESS_LINE_ID;
   const currentNode = elements.formCurrentNode.value;
   const owner = elements.formOwner.value.trim();
   const reminderDate = dateTimeString(elements.formReminderDate.value || new Date());
@@ -1809,6 +2086,8 @@ async function saveProjectFromForm() {
   const project = normalizeProject({
     id: projectId,
     source: existing ? existing.source : "custom",
+    businessLineId,
+    businessLineName: businessLineName(businessLineId),
     code: elements.formCode.value.trim(),
     title: elements.formTitle.value.trim(),
     author: elements.formAuthor.value.trim(),
@@ -1832,7 +2111,7 @@ async function saveProjectFromForm() {
     reminderNotificationLastError: shouldQueueReminder ? "" : existing?.reminderNotificationLastError || "",
     reminderNotificationKey: reminderKey,
     reminderNotificationAttempts: shouldQueueReminder ? 0 : Number(existing?.reminderNotificationAttempts || 0),
-    nodes: buildNodes(parseDate(existing ? existing.startDate : now), owner, status, currentNode, reminderPerson, reminderDate, status === "已暂停" ? currentNode : ""),
+    nodes: buildNodes(parseDate(existing ? existing.startDate : now), owner, status, currentNode, reminderPerson, reminderDate, status === "已暂停" ? currentNode : "", businessLineId),
     followUps: [{ time: dateTimeString(now), user: owner, progress: existing ? "更新了项目信息" : "创建了项目", nextAction: elements.formNextAction.value.trim() || "待补充下一步动作" }, ...(existing?.followUps || [])],
     logs: [{ time: dateTimeString(now), actor: owner, action: existing ? "编辑项目" : "创建项目", detail: `状态为「${status}」，当前节点为「${currentNode}」。` }, ...(existing?.logs || [])],
   });
@@ -1860,13 +2139,14 @@ function handleDrawerAction(action) {
   if (action === "pause") {
     current.status = current.status === "已暂停" ? "作者沟通中" : "已暂停";
     current.updatedAt = dateTimeString(new Date());
-    current.nodes = buildNodes(parseDate(current.startDate), current.owner, current.status, current.currentNode, current.reminderPerson, current.reminderDate, current.status === "已暂停" ? current.currentNode : "");
+    current.nodes = buildNodes(parseDate(current.startDate), current.owner, current.status, current.currentNode, current.reminderPerson, current.reminderDate, current.status === "已暂停" ? current.currentNode : "", current.businessLineId);
   }
   if (action === "complete") {
     current.status = "已完成";
-    current.currentNode = "尾印单";
+    const nodeNames = workflowNodeNamesForBusinessLine(current.businessLineId);
+    current.currentNode = nodeNames[nodeNames.length - 1] || current.currentNode;
     current.updatedAt = dateTimeString(new Date());
-    current.nodes = buildNodes(parseDate(current.startDate), current.owner, current.status, current.currentNode, current.reminderPerson, current.reminderDate, "");
+    current.nodes = buildNodes(parseDate(current.startDate), current.owner, current.status, current.currentNode, current.reminderPerson, current.reminderDate, "", current.businessLineId);
   }
   saveProjects();
   render();
@@ -1910,6 +2190,14 @@ function renameRoleAcrossSettings(previousName, nextName) {
     ...node,
     ownerRole: node.ownerRole === previousName ? nextName : node.ownerRole,
     reminderRole: node.reminderRole === previousName ? nextName : node.reminderRole,
+  }));
+  state.businessLines = businessLineOptions().map((line) => ({
+    ...line,
+    nodes: line.nodes.map((node) => ({
+      ...node,
+      ownerRole: node.ownerRole === previousName ? nextName : node.ownerRole,
+      reminderRole: node.reminderRole === previousName ? nextName : node.reminderRole,
+    })),
   }));
 }
 
@@ -1988,6 +2276,129 @@ async function deletePartner(name) {
     state.projects = state.projects.map((project) => (project.partner === name ? { ...project, partner: "" } : project));
     saveProjects();
   }
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+function syncWorkflowConfigCache() {
+  state.workflowConfig = workflowNodesForBusinessLine(DEFAULT_BUSINESS_LINE_ID);
+}
+
+function renameWorkflowNodeAcrossProjects(businessLineId, previousName, nextName) {
+  state.projects = state.projects.map((project) => {
+    if (businessLineIdForProject(project) !== businessLineId) return project;
+    return {
+      ...project,
+      currentNode: project.currentNode === previousName ? nextName : project.currentNode,
+      nodes: Array.isArray(project.nodes)
+        ? project.nodes.map((node) => ({ ...node, name: node.name === previousName ? nextName : node.name }))
+        : project.nodes,
+    };
+  });
+}
+
+function rebuildProjectsForBusinessLine(businessLineId) {
+  state.projects = state.projects.map((project) => {
+    if (businessLineIdForProject(project) !== businessLineId) return project;
+    const nodeNames = workflowNodeNamesForBusinessLine(businessLineId);
+    const currentNode = nodeNames.includes(project.currentNode) ? project.currentNode : nodeNames[0];
+    return normalizeProject({
+      ...project,
+      businessLineId,
+      businessLineName: businessLineName(businessLineId),
+      currentNode,
+      nodes: buildNodes(parseDate(project.startDate), project.owner, project.status, currentNode, project.reminderPerson, project.reminderDate, project.status === "已暂停" ? currentNode : "", businessLineId),
+    });
+  });
+}
+
+async function deleteBusinessLine(lineId) {
+  if (!hasPermission("管理流程节点")) return;
+  const lines = businessLineOptions();
+  const line = lines.find((item) => item.id === lineId);
+  if (!line) return;
+  if (lines.length <= 1) {
+    window.alert("至少需要保留 1 条业务线。");
+    return;
+  }
+  const fallback = lines.find((item) => item.id !== lineId);
+  const projectCount = state.projects.filter((project) => businessLineIdForProject(project) === lineId).length;
+  const confirmed = window.confirm(`确定删除业务线「${line.name}」吗？${projectCount ? `相关项目会改到「${fallback.name}」。` : ""}`);
+  if (!confirmed) return;
+  state.businessLines = lines.filter((item) => item.id !== lineId);
+  state.projects = state.projects.map((project) => {
+    if (businessLineIdForProject(project) !== lineId) return project;
+    const currentNode = defaultNodeForStatus(project.status, fallback.id);
+    return normalizeProject({
+      ...project,
+      businessLineId: fallback.id,
+      businessLineName: fallback.name,
+      currentNode,
+      nodes: buildNodes(parseDate(project.startDate), project.owner, project.status, currentNode, project.reminderPerson, project.reminderDate, project.status === "已暂停" ? currentNode : "", fallback.id),
+    });
+  });
+  if (state.selectedWorkflowLineId === lineId) state.selectedWorkflowLineId = fallback.id;
+  syncWorkflowConfigCache();
+  saveProjects();
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function addWorkflowNode() {
+  if (!hasPermission("管理流程节点")) return;
+  const line = businessLineById(state.selectedWorkflowLineId);
+  const names = new Set(line.nodes.map((node) => node.name));
+  let nextIndex = line.nodes.length + 1;
+  let nextName = `新节点 ${nextIndex}`;
+  while (names.has(nextName)) {
+    nextIndex += 1;
+    nextName = `新节点 ${nextIndex}`;
+  }
+  line.nodes.push({
+    id: recordId("node", `${line.id}-${nextName}-${Date.now()}`),
+    name: nextName,
+    ownerRole: roleOptions().find((role) => role.key === "editor")?.name || "编辑",
+    reminderRole: roleOptions().find((role) => role.key === "manager")?.name || "项目主管",
+    cycle: 3,
+  });
+  syncWorkflowConfigCache();
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function deleteWorkflowNode(nodeId) {
+  if (!hasPermission("管理流程节点")) return;
+  const line = businessLineById(state.selectedWorkflowLineId);
+  const node = line.nodes.find((item) => item.id === nodeId);
+  if (!node) return;
+  if (line.nodes.length <= 1) {
+    window.alert("每条业务线至少需要保留 1 个流程节点。");
+    return;
+  }
+  const projectCount = state.projects.filter((project) => businessLineIdForProject(project) === line.id && project.currentNode === node.name).length;
+  const confirmed = window.confirm(`确定删除节点「${node.name}」吗？${projectCount ? "相关项目会改到该业务线的第一个节点。" : ""}`);
+  if (!confirmed) return;
+  line.nodes = line.nodes.filter((item) => item.id !== nodeId);
+  syncWorkflowConfigCache();
+  rebuildProjectsForBusinessLine(line.id);
+  saveProjects();
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function moveWorkflowNode(nodeId, direction) {
+  if (!hasPermission("管理流程节点")) return;
+  const line = businessLineById(state.selectedWorkflowLineId);
+  const index = line.nodes.findIndex((node) => node.id === nodeId);
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || targetIndex < 0 || targetIndex >= line.nodes.length) return;
+  const [node] = line.nodes.splice(index, 1);
+  line.nodes.splice(targetIndex, 0, node);
+  syncWorkflowConfigCache();
   saveSettings();
   await flushRemoteSync();
   render();
@@ -2151,6 +2562,13 @@ function attachEvents() {
       if (button.dataset.adminAction === "add-partner") openAdminModal("partner", "");
       if (button.dataset.adminAction === "edit-partner") openAdminModal("partner", button.dataset.partnerName);
       if (button.dataset.adminAction === "delete-partner") void deletePartner(button.dataset.partnerName);
+      if (button.dataset.adminAction === "add-business-line") openAdminModal("businessLine", "");
+      if (button.dataset.adminAction === "edit-business-line") openAdminModal("businessLine", button.dataset.businessLineId);
+      if (button.dataset.adminAction === "delete-business-line") void deleteBusinessLine(button.dataset.businessLineId);
+      if (button.dataset.adminAction === "add-workflow-node") void addWorkflowNode();
+      if (button.dataset.adminAction === "delete-workflow-node") void deleteWorkflowNode(button.dataset.workflowNodeId);
+      if (button.dataset.adminAction === "move-workflow-node-up") void moveWorkflowNode(button.dataset.workflowNodeId, "up");
+      if (button.dataset.adminAction === "move-workflow-node-down") void moveWorkflowNode(button.dataset.workflowNodeId, "down");
     });
 
   elements.adminContent.addEventListener("change", (event) => {
@@ -2162,11 +2580,46 @@ function attachEvents() {
       saveSettings();
       return;
     }
-    if (target.dataset.workflowIndex) {
+    if (target.dataset.workflowLineSelect !== undefined) {
       if (!hasPermission("管理流程节点")) return;
-      const item = state.workflowConfig[Number(target.dataset.workflowIndex)];
-      item[target.dataset.workflowField] = target.dataset.workflowField === "cycle" ? Number(target.value) || 0 : target.value;
+      state.selectedWorkflowLineId = target.value;
       saveSettings();
+      render();
+      return;
+    }
+    if (target.dataset.workflowLineField) {
+      if (!hasPermission("管理流程节点")) return;
+      const line = businessLineById(state.selectedWorkflowLineId);
+      line[target.dataset.workflowLineField] = String(target.value || "").trim();
+      saveSettings();
+      return;
+    }
+    if (target.dataset.workflowNodeId) {
+      if (!hasPermission("管理流程节点")) return;
+      const line = businessLineById(state.selectedWorkflowLineId);
+      const item = line.nodes.find((node) => node.id === target.dataset.workflowNodeId);
+      if (!item) return;
+      if (target.dataset.workflowField === "name") {
+        const nextName = String(target.value || "").trim();
+        if (!nextName) {
+          target.value = item.name;
+          return;
+        }
+        const duplicate = line.nodes.some((node) => node.id !== item.id && node.name === nextName);
+        if (duplicate) {
+          window.alert("这条业务线里已经有同名节点。");
+          target.value = item.name;
+          return;
+        }
+        if (item.name !== nextName) renameWorkflowNodeAcrossProjects(line.id, item.name, nextName);
+        item.name = nextName;
+        saveProjects();
+      } else {
+        item[target.dataset.workflowField] = target.dataset.workflowField === "cycle" ? Math.max(0, Number(target.value) || 0) : target.value;
+      }
+      syncWorkflowConfigCache();
+      saveSettings();
+      void flushRemoteSync();
     }
   });
 
@@ -2317,9 +2770,50 @@ function attachEvents() {
         closeAdminModal();
       render();
     }
+      if (event.target.id === "adminBusinessLineForm") {
+        if (!hasPermission("管理流程节点")) return;
+        const formData = new FormData(event.target);
+        const nextName = String(formData.get("name") || "").trim();
+        const nextWorkflowName = String(formData.get("workflowName") || "").trim();
+        const nextDescription = String(formData.get("description") || "").trim();
+        if (!nextName || !nextWorkflowName) return;
+        const existing = businessLineOptions().find((line) => line.id === state.adminEditingId);
+        const duplicate = businessLineOptions().some((line) => line.name === nextName && line.id !== existing?.id);
+        if (duplicate) {
+          window.alert("这个业务线已经存在。");
+          return;
+        }
+        if (existing) {
+          existing.name = nextName;
+          existing.workflowName = nextWorkflowName;
+          existing.description = nextDescription || "可在后台维护该业务线对应的流程节点。";
+        } else {
+          const newLine = {
+            id: recordId("line", `${nextName}-${Date.now()}`),
+            name: nextName,
+            workflowName: nextWorkflowName,
+            description: nextDescription || "可在后台维护该业务线对应的流程节点。",
+            nodes: [
+              { id: recordId("node", `${nextName}-节点-1-${Date.now()}`), name: "开始处理", ownerRole: "编辑", reminderRole: "项目主管", cycle: 3 },
+              { id: recordId("node", `${nextName}-节点-2-${Date.now()}`), name: "交付确认", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
+            ],
+          };
+          state.businessLines.push(newLine);
+          state.selectedWorkflowLineId = newLine.id;
+        }
+        state.businessLines = normalizeBusinessLines(state.businessLines, state.workflowConfig);
+        syncWorkflowConfigCache();
+        saveSettings();
+        await flushRemoteSync();
+        closeAdminModal();
+        render();
+      }
   });
   elements.formStatus.addEventListener("change", (event) => {
-    elements.formCurrentNode.value = STATUS_TO_NODE[event.target.value] || "作者沟通";
+    elements.formCurrentNode.value = defaultNodeForStatus(event.target.value, elements.formBusinessLine.value || DEFAULT_BUSINESS_LINE_ID);
+  });
+  elements.formBusinessLine.addEventListener("change", (event) => {
+    renderCurrentNodeOptions(event.target.value, defaultNodeForStatus(elements.formStatus.value, event.target.value));
   });
 }
 
