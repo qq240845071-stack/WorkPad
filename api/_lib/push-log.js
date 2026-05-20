@@ -37,6 +37,7 @@ function appendPushLog(state, payload) {
     completionStatus: cleanText(payload.completionStatus, confirmable ? "待确认" : ""),
     completedAt: cleanText(payload.completedAt),
     completedBy: cleanText(payload.completedBy),
+    completionNote: cleanText(payload.completionNote),
     reminderId: cleanText(payload.reminderId),
     reminderScope: cleanText(payload.reminderScope),
   };

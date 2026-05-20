@@ -1992,6 +1992,7 @@ function renderRemindersPanel() {
                   <td>
                     ${escapeHtml(confirmationStatusText(reminder))}
                     ${reminder.completedAt ? `<div class="mini-text">${escapeHtml(formatPushLogTime(reminder.completedAt))}</div>` : ""}
+                    ${reminder.completionNote ? `<div class="mini-text">说明：${escapeHtml(reminder.completionNote)}</div>` : ""}
                   </td>
                   <td>${escapeHtml([reminder.source, reminder.actor].filter(Boolean).join(" / ") || "手动提醒")}</td>
                   <td>
@@ -2046,6 +2047,7 @@ function renderPushLogsPanel() {
                     ${escapeHtml(log.completionStatus || (log.confirmable ? "待确认" : "-"))}
                     ${log.completedAt ? `<div class="mini-text">${escapeHtml(formatPushLogTime(log.completedAt))}</div>` : ""}
                     ${log.completedBy ? `<div class="mini-text">${escapeHtml(log.completedBy)}</div>` : ""}
+                    ${log.completionNote ? `<div class="mini-text">说明：${escapeHtml(log.completionNote)}</div>` : ""}
                   </td>
                   <td>${escapeHtml(sourceText)}</td>
                   <td class="push-error-cell">${escapeHtml(log.error || "-")}</td>
@@ -2874,6 +2876,13 @@ async function savePublicReminderFromForm(form) {
 async function completeReminderFromAdmin(scope, reminderId, projectId) {
   const completedAt = new Date().toISOString();
   const completedBy = currentUser().name || "后台管理员";
+  const completionNote = window.prompt("请填写完成说明或进展备注，例如合同是否已签、电话沟通进展、下一步还要做什么：", "");
+  if (completionNote === null) return;
+  const cleanCompletionNote = completionNote.trim();
+  if (!cleanCompletionNote) {
+    window.alert("确认完成前必须填写说明。");
+    return;
+  }
   let reminder = null;
   let project = null;
 
@@ -2887,8 +2896,9 @@ async function completeReminderFromAdmin(scope, reminderId, projectId) {
     reminder.pending = false;
     reminder.completedAt = completedAt;
     reminder.completedBy = completedBy;
+    reminder.completionNote = cleanCompletionNote;
     project.logs = [
-      { time: dateTimeString(new Date()), actor: completedBy, action: "提醒完成确认", detail: `${reminder.person}：${reminder.note}` },
+      { time: dateTimeString(new Date()), actor: completedBy, action: "提醒完成确认", detail: `${reminder.person}：${reminder.note}；说明：${cleanCompletionNote}` },
       ...(Array.isArray(project.logs) ? project.logs : []),
     ].slice(0, 100);
     syncProjectReminderFields(project);
@@ -2901,6 +2911,7 @@ async function completeReminderFromAdmin(scope, reminderId, projectId) {
     reminder.pending = false;
     reminder.completedAt = completedAt;
     reminder.completedBy = completedBy;
+    reminder.completionNote = cleanCompletionNote;
   }
 
   state.pushLogs = (Array.isArray(state.pushLogs) ? state.pushLogs : []).map((log) => {
@@ -2912,6 +2923,7 @@ async function completeReminderFromAdmin(scope, reminderId, projectId) {
       completionStatus: "已完成",
       completedAt,
       completedBy,
+      completionNote: cleanCompletionNote,
     };
   });
 

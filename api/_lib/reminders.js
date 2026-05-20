@@ -175,16 +175,17 @@ function ensureReminderConfirmation(reminder, baseUrl = publicBaseUrl()) {
   return reminder.confirmationUrl;
 }
 
-function markReminderCompleted(reminder, completedBy = "企业微信确认", completedAt = nowIso()) {
+function markReminderCompleted(reminder, completedBy = "企业微信确认", completedAt = nowIso(), completionNote = "") {
   reminder.status = "completed";
   reminder.pending = false;
   reminder.completedAt = completedAt;
   reminder.completedBy = textValue(completedBy || "企业微信确认");
+  reminder.completionNote = textValue(completionNote);
   reminder.lastError = "";
   return reminder;
 }
 
-function completeReminderByToken(state, token, completedBy = "企业微信确认") {
+function completeReminderByToken(state, token, completedBy = "企业微信确认", completionNote = "") {
   const normalizedToken = textValue(token);
   if (!normalizedToken) return null;
   const completedAt = nowIso();
@@ -193,30 +194,31 @@ function completeReminderByToken(state, token, completedBy = "企业微信确认
     project.reminders = normalizeProjectReminders(project);
     const reminder = project.reminders.find((item) => item.confirmationToken === normalizedToken);
     if (!reminder) continue;
-    markReminderCompleted(reminder, completedBy, completedAt);
+    markReminderCompleted(reminder, completedBy, completedAt, completionNote);
     syncProjectReminderFields(project);
-    updatePushLogCompletion(state, normalizedToken, completedBy, completedAt);
+    updatePushLogCompletion(state, normalizedToken, completedBy, completedAt, completionNote);
     return { scope: "project", project, reminder };
   }
 
   state.publicReminders = normalizePublicReminders(state.publicReminders);
   const reminder = state.publicReminders.find((item) => item.confirmationToken === normalizedToken);
   if (reminder) {
-    markReminderCompleted(reminder, completedBy, completedAt);
-    updatePushLogCompletion(state, normalizedToken, completedBy, completedAt);
+    markReminderCompleted(reminder, completedBy, completedAt, completionNote);
+    updatePushLogCompletion(state, normalizedToken, completedBy, completedAt, completionNote);
     return { scope: "public", reminder };
   }
 
   return null;
 }
 
-function updatePushLogCompletion(state, token, completedBy, completedAt) {
+function updatePushLogCompletion(state, token, completedBy, completedAt, completionNote = "") {
   if (!Array.isArray(state.pushLogs)) return;
   state.pushLogs.forEach((log) => {
     if (log.confirmationToken !== token) return;
     log.completionStatus = "已完成";
     log.completedAt = completedAt;
     log.completedBy = completedBy;
+    log.completionNote = textValue(completionNote);
   });
 }
 

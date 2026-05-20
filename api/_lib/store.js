@@ -215,6 +215,7 @@ function normalizePushLogs(pushLogs) {
       completionStatus: String(item.completionStatus || ""),
       completedAt: String(item.completedAt || ""),
       completedBy: String(item.completedBy || ""),
+      completionNote: String(item.completionNote || ""),
       reminderId: String(item.reminderId || ""),
       reminderScope: String(item.reminderScope || ""),
     };
