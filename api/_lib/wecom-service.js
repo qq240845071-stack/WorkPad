@@ -569,7 +569,7 @@ async function transcribeVoiceMessage(message) {
   return { text: result.text, source: "ai-transcription", model: result.model, providerName: result.providerName };
 }
 
-async function handleIncomingMessage(message) {
+async function handleIncomingMessage(message, options = {}) {
   const key = messageKey(message);
   const firstSeenInProcess = rememberMessageKey(key);
   const snapshot = await readStoredState();
@@ -577,11 +577,11 @@ async function handleIncomingMessage(message) {
   const actor = actorNameFromMessage(state, message.FromUserName);
   const existingInbox = (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).find((item) => item.messageKey === key);
 
-  if (!firstSeenInProcess) {
+  if (!firstSeenInProcess && !options.reprocessExisting) {
     return { replyText: "", snapshot };
   }
 
-  if (existingInbox) {
+  if (existingInbox && !options.reprocessExisting) {
     return { replyText: "", snapshot };
   }
 
@@ -601,23 +601,24 @@ async function handleIncomingMessage(message) {
       msgType: message.MsgType,
       event: message.Event || "",
       mediaId: message.MediaId || "",
+      format: message.Format || "",
       content: content || (message.MsgType === "voice" ? "[语音待识别]" : ""),
-      status: message.MsgType === "voice" ? "processing" : "received",
+      status: message.MsgType === "voice" ? "queued" : "received",
     });
     if (message.MsgType === "voice") {
       await writeStoredState(state);
     }
   }
 
-  async function saveWithReply(replyText, extra = {}) {
+  async function saveWithReply(replyText, extra = {}, replyStatus = "done") {
     updateInboxByKey(state, key, {
       replyText,
-      status: "done",
+      status: replyStatus,
       content,
       transcript: transcript?.text || "",
       transcriptSource: transcript?.source || "",
     });
-    if (replyText.startsWith("您发布的")) {
+    if (options.forceActiveReply || replyText.startsWith("您发布的")) {
       const logId = commandReplyLogId(key);
       appendPushLog(state, {
         id: logId,
@@ -674,6 +675,16 @@ async function handleIncomingMessage(message) {
   }
 
   if (message.MsgType === "voice") {
+    if (!String(message.Recognition || "").trim() && !options.reprocessExisting) {
+      const replyText = "已收到语音，正在转文字和解析。处理完成后，我会再主动给你发送成功或失败结果。";
+      updateInboxByKey(state, key, {
+        replyText,
+        status: "queued",
+        content: "[语音已入队]",
+      });
+      const saved = await writeStoredState(state);
+      return { replyText, snapshot: saved, queued: true };
+    }
     try {
       transcript = await transcribeVoiceMessage(message);
       content = transcript.text;
@@ -685,9 +696,9 @@ async function handleIncomingMessage(message) {
       });
     } catch (error) {
       const replyText = `收到语音，但转文字失败：${error instanceof Error ? error.message : String(error)}\n可以先改发文字，例如：明天下午三点提醒张莹跟进 BK-2026-005 合同回签。`;
+      content = "[语音转文字失败]";
       updateInboxByKey(state, key, { replyText, status: "failed", content: "[语音转文字失败]" });
-      const saved = await writeStoredState(state);
-      return { replyText, snapshot: saved };
+      return saveWithReply(replyText, {}, "failed");
     }
   } else if (message.MsgType !== "text") {
     const replyText = "当前先支持文本和语音指令。你可以发送“帮助”查看可用命令。";
@@ -792,6 +803,83 @@ async function handleIncomingMessage(message) {
   return saveWithReply(helpText());
 }
 
+async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
+  const snapshot = await readStoredState();
+  const state = snapshot.state;
+  const inbox = Array.isArray(state.wecomInbox) ? state.wecomInbox : [];
+  const candidates = inbox
+    .filter((item) => item.msgType === "voice" && item.mediaId && ["queued", "processing"].includes(item.status))
+    .slice(0, Math.max(1, Number(limit) || 3));
+  const results = [];
+
+  if (dryRun) {
+    return {
+      ok: true,
+      checkedAt: new Date().toISOString(),
+      queuedCount: candidates.length,
+      processedCount: 0,
+      results: candidates.map((item) => ({
+        ok: true,
+        dryRun: true,
+        messageKey: item.messageKey,
+        actor: item.actor,
+        status: item.status,
+      })),
+    };
+  }
+
+  for (const item of candidates) {
+    updateInboxByKey(state, item.messageKey, {
+      status: "processing",
+      processingStartedAt: dateTimeString(nowDate()),
+    });
+    await writeStoredState(state);
+
+    try {
+      const result = await handleIncomingMessage({
+        MsgType: "voice",
+        FromUserName: item.fromUserId,
+        MediaId: item.mediaId,
+        MsgId: item.messageKey,
+        Format: item.format || "amr",
+      }, {
+        reprocessExisting: true,
+        forceActiveReply: true,
+      });
+      results.push({
+        ok: true,
+        messageKey: item.messageKey,
+        actor: item.actor,
+        activeReplySent: Boolean(result.activeReplySent),
+      });
+    } catch (error) {
+      const latestSnapshot = await readStoredState();
+      const latestState = latestSnapshot.state;
+      const message = error instanceof Error ? error.message : String(error);
+      updateInboxByKey(latestState, item.messageKey, {
+        status: "failed",
+        replyText: `语音命令处理失败：${message}`,
+        activeReplyError: message,
+      });
+      await writeStoredState(latestState);
+      results.push({
+        ok: false,
+        messageKey: item.messageKey,
+        actor: item.actor,
+        error: message,
+      });
+    }
+  }
+
+  return {
+    ok: results.every((item) => item.ok),
+    checkedAt: new Date().toISOString(),
+    queuedCount: candidates.length,
+    processedCount: results.length,
+    results,
+  };
+}
+
 async function fetchAccessToken() {
   if (hasWecomProxyConfig()) {
     const result = await requestWecomProxyJson("/token", {});
@@ -838,6 +926,7 @@ async function sendAppTextMessage({ toUser, content }) {
 
 module.exports = {
   handleIncomingMessage,
+  processQueuedWecomMessages,
   sendAppTextMessage,
   hasWecomProxyConfig,
   findMember,

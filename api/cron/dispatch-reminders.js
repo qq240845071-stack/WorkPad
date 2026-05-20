@@ -1,4 +1,5 @@
 const { dispatchDueReminders } = require("../_lib/reminder-dispatcher");
+const { processQueuedWecomMessages } = require("../_lib/wecom-service");
 
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode;
@@ -23,8 +24,14 @@ module.exports = async (req, res) => {
 
   try {
     const url = new URL(req.url, "http://localhost");
-    const result = await dispatchDueReminders({ dryRun: url.searchParams.get("dryRun") === "1" });
-    return sendJson(res, 200, result);
+    const dryRun = url.searchParams.get("dryRun") === "1";
+    const reminderResult = await dispatchDueReminders({ dryRun });
+    const wecomInboxResult = await processQueuedWecomMessages({ dryRun, limit: Number(url.searchParams.get("wecomLimit") || 3) });
+    return sendJson(res, 200, {
+      ok: reminderResult.ok && wecomInboxResult.ok,
+      reminderResult,
+      wecomInboxResult,
+    });
   } catch (error) {
     return sendJson(res, 500, {
       ok: false,
