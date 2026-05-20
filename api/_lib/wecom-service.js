@@ -49,6 +49,13 @@ function findProject(state, keyword) {
 }
 
 function pushInbox(state, payload) {
+  const logs = Array.isArray(state.wecomInbox) ? state.wecomInbox : [];
+  const existing = logs.find((entry) => entry.messageKey && entry.messageKey === payload.messageKey);
+  if (existing) {
+    Object.assign(existing, payload);
+    state.wecomInbox = [existing, ...logs.filter((entry) => entry !== existing)].slice(0, 200);
+    return existing;
+  }
   const item = {
     id: `wx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: dateTimeString(nowDate()),
@@ -56,7 +63,7 @@ function pushInbox(state, payload) {
   };
   state.wecomInbox = [
     item,
-    ...(Array.isArray(state.wecomInbox) ? state.wecomInbox : []),
+    ...logs,
   ].slice(0, 200);
   return item;
 }
@@ -89,8 +96,26 @@ function rememberMessageKey(key) {
 }
 
 function updateInboxByKey(state, key, patch) {
-  const item = (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).find((entry) => entry.messageKey === key);
-  if (item) Object.assign(item, patch);
+  (Array.isArray(state.wecomInbox) ? state.wecomInbox : []).forEach((item) => {
+    if (item.messageKey === key) Object.assign(item, patch);
+  });
+}
+
+function dedupeWecomInbox(state) {
+  const inbox = Array.isArray(state.wecomInbox) ? state.wecomInbox : [];
+  const seen = new Set();
+  let removedCount = 0;
+  state.wecomInbox = inbox.filter((item) => {
+    const key = String(item.messageKey || "").trim();
+    if (!key) return true;
+    if (seen.has(key)) {
+      removedCount += 1;
+      return false;
+    }
+    seen.add(key);
+    return true;
+  }).slice(0, 200);
+  return removedCount;
 }
 
 function friendlyWecomError(payload, fallback) {
@@ -592,7 +617,7 @@ async function handleIncomingMessage(message, options = {}) {
   let content = String(message.Content || "").trim();
   let transcript = null;
 
-  if (shouldStoreIncomingMessage(message)) {
+  if (shouldStoreIncomingMessage(message) && !existingInbox) {
     pushInbox(state, {
       messageKey: key,
       direction: "inbound",
@@ -806,6 +831,7 @@ async function handleIncomingMessage(message, options = {}) {
 async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
   const snapshot = await readStoredState();
   const state = snapshot.state;
+  const dedupedCount = dedupeWecomInbox(state);
   const inbox = Array.isArray(state.wecomInbox) ? state.wecomInbox : [];
   const candidates = inbox
     .filter((item) => item.msgType === "voice" && item.mediaId && ["queued", "processing"].includes(item.status))
@@ -816,6 +842,7 @@ async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
     return {
       ok: true,
       checkedAt: new Date().toISOString(),
+      dedupedCount,
       queuedCount: candidates.length,
       processedCount: 0,
       results: candidates.map((item) => ({
@@ -826,6 +853,10 @@ async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
         status: item.status,
       })),
     };
+  }
+
+  if (dedupedCount > 0) {
+    await writeStoredState(state);
   }
 
   for (const item of candidates) {
@@ -874,6 +905,7 @@ async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
   return {
     ok: results.every((item) => item.ok),
     checkedAt: new Date().toISOString(),
+    dedupedCount,
     queuedCount: candidates.length,
     processedCount: results.length,
     results,
