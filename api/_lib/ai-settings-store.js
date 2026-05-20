@@ -31,7 +31,7 @@ const DEFAULT_AI_SETTINGS = {
   },
   transcription: {
     label: "语音转文字",
-    providerName: "云雾 Whisper",
+    providerName: "云雾 Whisper（腾讯云 ASR 优先）",
     baseUrl: "https://yunwu.ai/v1",
     model: "whisper-1",
   },

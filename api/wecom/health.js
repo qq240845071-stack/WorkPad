@@ -1,6 +1,7 @@
 const { readStoredState } = require("../_lib/store");
 const { hasCallbackConfig, hasSendConfig, getConfig } = require("../_lib/wecom-crypto");
 const { hasWecomProxyConfig } = require("../_lib/wecom-service");
+const { hasTencentAsrConfig } = require("../_lib/tencent-asr");
 
 module.exports = async (_req, res) => {
   try {
@@ -19,6 +20,11 @@ module.exports = async (_req, res) => {
       fixedIpProxyConfigured: hasWecomProxyConfig(),
       fixedIpProxyBaseUrlReady: Boolean(process.env.WECOM_PROXY_BASE_URL || process.env.WECOM_PROXY_URL),
       fixedIpProxySecretReady: Boolean(process.env.WECOM_PROXY_SECRET),
+      tencentAsrConfigured: hasTencentAsrConfig(),
+      tencentAsrSecretIdReady: Boolean(process.env.TENCENT_ASR_SECRET_ID),
+      tencentAsrSecretKeyReady: Boolean(process.env.TENCENT_ASR_SECRET_KEY),
+      tencentAsrRegion: process.env.TENCENT_ASR_REGION || "ap-shanghai",
+      tencentAsrEngine: process.env.TENCENT_ASR_ENGINE || "16k_zh",
       inboxCount: Array.isArray(snapshot.state.wecomInbox) ? snapshot.state.wecomInbox.length : 0,
       pushLogCount: Array.isArray(snapshot.state.pushLogs) ? snapshot.state.pushLogs.length : 0,
       storageMode: snapshot.meta.storageMode,

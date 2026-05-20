@@ -1888,7 +1888,7 @@ function defaultAiSettings() {
     risk: { label: "风险评估", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
     vision: { label: "图片识别", providerName: "云雾 Qwen3 VL Flash", baseUrl: "https://yunwu.ai/v1", model: "qwen3-vl-flash", configured: false },
     command: { label: "自然语言指令", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
-    transcription: { label: "语音转文字", providerName: "云雾 Whisper", baseUrl: "https://yunwu.ai/v1", model: "whisper-1", configured: false },
+    transcription: { label: "语音转文字", providerName: "云雾 Whisper（腾讯云 ASR 优先）", baseUrl: "https://yunwu.ai/v1", model: "whisper-1", configured: false },
   };
 }
 
@@ -2037,7 +2037,7 @@ function renderAiPanel() {
       <div class="ai-panel-head">
         <div>
           <h3>AI 配置中心</h3>
-          <div class="mini-text">按任务配置模型。API Key 只在服务端环境变量保存，后台不显示密钥内容。企微语音会用“语音转文字”和“自然语言指令”两项。</div>
+          <div class="mini-text">按任务配置模型。API Key 只在服务端环境变量保存，后台不显示密钥内容。企微语音优先使用腾讯云 ASR 转文字，再交给“自然语言指令”理解。</div>
         </div>
         <span class="chip chip-status">${state.aiConfigPending ? "保存中" : "服务端配置"}</span>
       </div>

@@ -1,4 +1,5 @@
 const { DEFAULT_AI_SETTINGS, readAiSettings } = require("./ai-settings-store");
+const { createTencentAsrTranscription, hasTencentAsrConfig } = require("./tencent-asr");
 
 const TASK_ENV_PREFIX = {
   chat: "AI_CHAT",
@@ -28,6 +29,7 @@ async function getAiConfig(task = "chat") {
 }
 
 async function hasAiConfig(task = "chat") {
+  if (taskKey(task) === "transcription" && hasTencentAsrConfig()) return true;
   return Boolean((await getAiConfig(task)).apiKey);
 }
 
@@ -83,9 +85,26 @@ async function createChatCompletion({ messages, temperature = 0.3, task = "chat"
 }
 
 async function createAudioTranscription({ audioBuffer, filename = "voice.amr", contentType = "application/octet-stream", prompt = "" }) {
+  if (hasTencentAsrConfig() && process.env.TENCENT_ASR_DISABLED !== "true") {
+    try {
+      return await createTencentAsrTranscription({ audioBuffer, filename, contentType, prompt });
+    } catch (error) {
+      if (process.env.TENCENT_ASR_FALLBACK_DISABLED === "true") throw error;
+      const fallback = await createOpenAiCompatibleAudioTranscription({ audioBuffer, filename, contentType, prompt });
+      return {
+        ...fallback,
+        fallbackFrom: "腾讯云 ASR",
+        fallbackReason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  return createOpenAiCompatibleAudioTranscription({ audioBuffer, filename, contentType, prompt });
+}
+
+async function createOpenAiCompatibleAudioTranscription({ audioBuffer, filename = "voice.amr", contentType = "application/octet-stream", prompt = "" }) {
   const config = await getAiConfig("transcription");
   if (!config.apiKey) {
-    throw new Error(`大模型接口还没有配置 ${config.label} 可用的 API Key。`);
+    throw new Error(`语音转文字还没有配置可用的 API Key。可以配置腾讯云 ASR 的 TENCENT_ASR_SECRET_ID / TENCENT_ASR_SECRET_KEY，或配置 ${config.label} 的 API Key。`);
   }
 
   const formData = new FormData();
@@ -125,4 +144,5 @@ module.exports = {
   createAudioTranscription,
   getAiConfig,
   hasAiConfig,
+  hasTencentAsrConfig,
 };
