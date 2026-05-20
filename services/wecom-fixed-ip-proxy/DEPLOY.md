@@ -39,6 +39,10 @@ WORKPAD_PROXY_SECRET=换成一串足够长的随机密钥
 WECOM_CORP_ID=企业微信 CorpID
 WECOM_APP_SECRET=WorkPad 自建应用 Secret
 WECOM_AGENT_ID=1000009
+TENCENT_ASR_SECRET_ID=后续填腾讯云 ASR SecretId
+TENCENT_ASR_SECRET_KEY=后续填腾讯云 ASR SecretKey
+TENCENT_ASR_REGION=ap-shanghai
+TENCENT_ASR_ENGINE=16k_zh
 EOF
 ```
 
@@ -99,6 +103,7 @@ curl https://wecom-proxy.tbxprint.com/health
 {
   "ok": true,
   "ready": true,
+  "asrReady": true,
   "egressIp": "你的 ECS 固定公网 IP"
 }
 ```
@@ -119,6 +124,8 @@ curl https://wecom-proxy.tbxprint.com/health
 WECOM_PROXY_BASE_URL=https://wecom-proxy.tbxprint.com
 WECOM_PROXY_SECRET=和 WORKPAD_PROXY_SECRET 一致
 ```
+
+如果 ASR 和企业微信共用这个代理，不需要额外设置 `TENCENT_ASR_PROXY_BASE_URL`。WorkPad 会自动复用 `WECOM_PROXY_BASE_URL` 和 `WECOM_PROXY_SECRET`。
 
 然后重新部署 WorkPad。部署后打开：
 

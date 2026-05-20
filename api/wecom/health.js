@@ -1,7 +1,7 @@
 const { readStoredState } = require("../_lib/store");
 const { hasCallbackConfig, hasSendConfig, getConfig } = require("../_lib/wecom-crypto");
 const { hasWecomProxyConfig } = require("../_lib/wecom-service");
-const { hasTencentAsrConfig } = require("../_lib/tencent-asr");
+const { hasTencentAsrConfig, hasTencentAsrDirectConfig, hasTencentAsrProxyConfig } = require("../_lib/tencent-asr");
 
 module.exports = async (_req, res) => {
   try {
@@ -21,6 +21,10 @@ module.exports = async (_req, res) => {
       fixedIpProxyBaseUrlReady: Boolean(process.env.WECOM_PROXY_BASE_URL || process.env.WECOM_PROXY_URL),
       fixedIpProxySecretReady: Boolean(process.env.WECOM_PROXY_SECRET),
       tencentAsrConfigured: hasTencentAsrConfig(),
+      tencentAsrDirectConfigured: hasTencentAsrDirectConfig(),
+      tencentAsrProxyConfigured: hasTencentAsrProxyConfig(),
+      tencentAsrProxyBaseUrlReady: Boolean(process.env.TENCENT_ASR_PROXY_BASE_URL || process.env.WECOM_PROXY_BASE_URL || process.env.WECOM_PROXY_URL),
+      tencentAsrProxySecretReady: Boolean(process.env.TENCENT_ASR_PROXY_SECRET || process.env.WECOM_PROXY_SECRET),
       tencentAsrSecretIdReady: Boolean(process.env.TENCENT_ASR_SECRET_ID),
       tencentAsrSecretKeyReady: Boolean(process.env.TENCENT_ASR_SECRET_KEY),
       tencentAsrRegion: process.env.TENCENT_ASR_REGION || "ap-shanghai",

@@ -10,6 +10,7 @@
 2. 这个代理部署到有固定公网 IP 的服务器，例如阿里云 ECS + 固定公网 IP / EIP。
 3. 企业微信后台只需要放行这个固定公网 IP。
 4. WorkPad 调用企业微信的获取 `access_token`、主动发消息、下载语音素材接口时，统一转发到这个代理。
+5. WorkPad 调用腾讯云 ASR 时，也可以统一转发到这个代理，保证 ASR 请求从腾讯云北京服务器出口发出。
 
 ## 环境变量
 
@@ -20,6 +21,10 @@ WORKPAD_PROXY_SECRET=一串足够长的随机密钥
 WECOM_CORP_ID=企业微信 CorpID
 WECOM_APP_SECRET=自建应用 Secret
 WECOM_AGENT_ID=自建应用 AgentId
+TENCENT_ASR_SECRET_ID=腾讯云 ASR SecretId
+TENCENT_ASR_SECRET_KEY=腾讯云 ASR SecretKey
+TENCENT_ASR_REGION=ap-shanghai
+TENCENT_ASR_ENGINE=16k_zh
 ```
 
 ## 本地启动

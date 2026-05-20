@@ -1,8 +1,13 @@
 const http = require("node:http");
+const crypto = require("node:crypto");
 const { URL } = require("node:url");
 
 const TOKEN_REFRESH_MARGIN_SECONDS = 300;
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
+const TENCENT_ASR_HOST = "asr.tencentcloudapi.com";
+const TENCENT_ASR_SERVICE = "asr";
+const TENCENT_ASR_ACTION = "SentenceRecognition";
+const TENCENT_ASR_VERSION = "2019-06-14";
 let tokenCache = { value: "", expiresAt: 0 };
 
 function config() {
@@ -13,6 +18,11 @@ function config() {
     corpId: String(process.env.WECOM_CORP_ID || "").trim(),
     appSecret: String(process.env.WECOM_APP_SECRET || "").trim(),
     agentId: String(process.env.WECOM_AGENT_ID || "").trim(),
+    tencentAsrSecretId: String(process.env.TENCENT_ASR_SECRET_ID || "").trim(),
+    tencentAsrSecretKey: String(process.env.TENCENT_ASR_SECRET_KEY || "").trim(),
+    tencentAsrRegion: String(process.env.TENCENT_ASR_REGION || "ap-shanghai").trim(),
+    tencentAsrEngine: String(process.env.TENCENT_ASR_ENGINE || "16k_zh").trim(),
+    tencentAsrProjectId: Number(process.env.TENCENT_ASR_PROJECT_ID || 0),
   };
 }
 
@@ -24,6 +34,21 @@ function readiness() {
     appSecretReady: Boolean(item.appSecret),
     agentIdReady: Boolean(item.agentId),
   };
+}
+
+function asrReadiness() {
+  const item = config();
+  return {
+    tencentAsrSecretIdReady: Boolean(item.tencentAsrSecretId),
+    tencentAsrSecretKeyReady: Boolean(item.tencentAsrSecretKey),
+    tencentAsrRegion: item.tencentAsrRegion || "ap-shanghai",
+    tencentAsrEngine: item.tencentAsrEngine || "16k_zh",
+  };
+}
+
+function isAsrReady() {
+  const item = asrReadiness();
+  return Boolean(item.tencentAsrSecretIdReady && item.tencentAsrSecretKeyReady);
 }
 
 function isReady() {
@@ -207,6 +232,151 @@ async function handleMedia(req, res, requestUrl) {
   res.end(buffer);
 }
 
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function hmacSha256(key, value, encoding) {
+  return crypto.createHmac("sha256", key).update(value, "utf8").digest(encoding);
+}
+
+function utcDateString(timestamp) {
+  return new Date(timestamp * 1000).toISOString().slice(0, 10);
+}
+
+function signTencentRequest({ secretId, secretKey, timestamp, payload }) {
+  const algorithm = "TC3-HMAC-SHA256";
+  const date = utcDateString(timestamp);
+  const credentialScope = `${date}/${TENCENT_ASR_SERVICE}/tc3_request`;
+  const canonicalHeaders = `content-type:application/json; charset=utf-8\nhost:${TENCENT_ASR_HOST}\n`;
+  const signedHeaders = "content-type;host";
+  const canonicalRequest = [
+    "POST",
+    "/",
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    sha256Hex(payload),
+  ].join("\n");
+  const stringToSign = [
+    algorithm,
+    String(timestamp),
+    credentialScope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+  const secretDate = hmacSha256(`TC3${secretKey}`, date);
+  const secretService = hmacSha256(secretDate, TENCENT_ASR_SERVICE);
+  const secretSigning = hmacSha256(secretService, "tc3_request");
+  const signature = hmacSha256(secretSigning, stringToSign, "hex");
+  return `${algorithm} Credential=${secretId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+}
+
+function audioFormatFromInput({ filename = "", contentType = "" }) {
+  const name = String(filename || "").trim().toLowerCase();
+  const content = String(contentType || "").trim().toLowerCase();
+  const extension = name.match(/\.([a-z0-9]+)$/)?.[1] || "";
+  if (extension) return extension === "mpeg" ? "mp3" : extension;
+  if (content.includes("amr")) return "amr";
+  if (content.includes("speex")) return "speex";
+  if (content.includes("wav")) return "wav";
+  if (content.includes("mpeg") || content.includes("mp3")) return "mp3";
+  if (content.includes("m4a")) return "m4a";
+  return String(process.env.TENCENT_ASR_VOICE_FORMAT || "amr").trim() || "amr";
+}
+
+function tencentAsrError(payload, fallback = "腾讯云语音识别请求失败。") {
+  const error = payload?.Response?.Error || payload?.Error || payload?.error;
+  if (!error) return fallback;
+  const code = String(error.Code || error.code || "").trim();
+  const message = String(error.Message || error.message || fallback).trim();
+  return code ? `${message}（${code}）` : message;
+}
+
+async function handleAsrSentence(req, res) {
+  if (!isAsrReady()) {
+    errorResponse(res, 500, "腾讯云 ASR 代理还没有配置 SecretId / SecretKey。", asrReadiness());
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  const audioBase64 = String(body.audioBase64 || body.data || "").trim();
+  if (!audioBase64) {
+    errorResponse(res, 400, "缺少 audioBase64。");
+    return;
+  }
+
+  const audioBuffer = Buffer.from(audioBase64, "base64");
+  if (!audioBuffer.length) {
+    errorResponse(res, 400, "audioBase64 不是有效音频。");
+    return;
+  }
+
+  const item = config();
+  const filename = String(body.filename || "voice.amr").trim();
+  const contentType = String(body.contentType || "application/octet-stream").trim();
+  const voiceFormat = audioFormatFromInput({ filename, contentType });
+  const timestamp = Math.floor(Date.now() / 1000);
+  const payload = JSON.stringify({
+    ProjectId: item.tencentAsrProjectId,
+    SubServiceType: 2,
+    EngSerViceType: item.tencentAsrEngine,
+    SourceType: 1,
+    VoiceFormat: voiceFormat,
+    UsrAudioKey: `workpad-proxy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    Data: audioBuffer.toString("base64"),
+    DataLen: audioBuffer.length,
+    ConvertNumMode: 1,
+    FilterDirty: 0,
+    FilterModal: 0,
+    FilterPunc: 0,
+  });
+  const authorization = signTencentRequest({
+    secretId: item.tencentAsrSecretId,
+    secretKey: item.tencentAsrSecretKey,
+    timestamp,
+    payload,
+  });
+
+  const response = await fetch(`https://${TENCENT_ASR_HOST}`, {
+    method: "POST",
+    headers: {
+      "Authorization": authorization,
+      "Content-Type": "application/json; charset=utf-8",
+      "Host": TENCENT_ASR_HOST,
+      "X-TC-Action": TENCENT_ASR_ACTION,
+      "X-TC-Version": TENCENT_ASR_VERSION,
+      "X-TC-Timestamp": String(timestamp),
+      "X-TC-Region": item.tencentAsrRegion,
+    },
+    body: payload,
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.Response?.Error || result.Error || result.error) {
+    errorResponse(res, response.ok ? 502 : response.status, tencentAsrError(result, `腾讯云语音识别请求失败：${response.status}`), {
+      payload: result,
+    });
+    return;
+  }
+
+  const text = String(result.Response?.Result || result.Response?.Text || result.Result || result.Text || "").trim();
+  if (!text) {
+    errorResponse(res, 502, "腾讯云语音识别没有返回可用文本。", { payload: result });
+    return;
+  }
+
+  jsonResponse(res, 200, {
+    ok: true,
+    text,
+    model: item.tencentAsrEngine,
+    providerName: "腾讯云 ASR 一句话识别（北京代理）",
+    usage: {
+      requestId: String(result.Response?.RequestId || "").trim(),
+      voiceFormat,
+      egress: "tencent-beijing-proxy",
+    },
+  });
+}
+
 async function resolveEgressIp() {
   const endpoints = [
     { url: "https://api.ipify.org?format=json", type: "json", field: "ip" },
@@ -240,6 +410,8 @@ async function handleHealth(_req, res) {
     ok: true,
     ready: isReady(),
     ...readiness(),
+    asrReady: isAsrReady(),
+    ...asrReadiness(),
     egressIp,
   });
 }
@@ -269,6 +441,10 @@ async function route(req, res) {
     }
     if (req.method === "GET" && requestUrl.pathname === "/media") {
       await handleMedia(req, res, requestUrl);
+      return;
+    }
+    if (req.method === "POST" && requestUrl.pathname === "/asr-sentence") {
+      await handleAsrSentence(req, res);
       return;
     }
 
