@@ -192,6 +192,7 @@ function buildReminderText(project, reminder) {
     `状态：${project.status} / ${project.currentNode}`,
     `提醒人：${reminder.person}`,
     `提醒时间：${reminder.date}`,
+    reminder.actor ? `发起人：${reminder.actor}` : "",
     reminder.note ? `说明：${reminder.note}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -201,6 +202,7 @@ function buildPublicReminderText(reminder) {
     "已记录新的公共提醒：",
     `提醒人：${reminder.person}`,
     `提醒时间：${reminder.date}`,
+    reminder.actor ? `发起人：${reminder.actor}` : "",
     reminder.note ? `说明：${reminder.note}` : "",
   ].filter(Boolean).join("\n");
 }
