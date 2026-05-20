@@ -1449,6 +1449,7 @@ th {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.7;
+  white-space: pre-wrap;
 }
 
 .node-timeline-card:first-child .node-timeline-card-body {
@@ -1470,6 +1471,60 @@ th {
 .node-timeline-card:last-child:hover .node-timeline-card-body,
 .node-timeline-card:last-child:focus-within .node-timeline-card-body {
   transform: translate(0, 0);
+}
+
+.node-note-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(24, 20, 16, 0.46);
+}
+
+.node-note-panel {
+  width: min(520px, 100%);
+  padding: 24px;
+  border: 1px solid rgba(31, 36, 48, 0.1);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, rgba(255, 252, 245, 0.98), rgba(248, 241, 228, 0.98)),
+    radial-gradient(circle at top right, rgba(164, 72, 47, 0.12), transparent 34%);
+  box-shadow: 0 24px 70px rgba(24, 20, 16, 0.28);
+}
+
+.node-note-panel h3 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  line-height: 1.45;
+}
+
+.node-note-input {
+  width: 100%;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(31, 36, 48, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.node-note-error {
+  min-height: 22px;
+  margin: 8px 0 0;
+  color: #7f311d;
+  font-size: 13px;
+}
+
+.node-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 14px;
 }
 
 .node-duration {

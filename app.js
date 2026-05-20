@@ -959,6 +959,13 @@ function nodeOperatorText(node = {}) {
   return textValue(node.completedBy || node.startedBy || "");
 }
 
+function nodeDisplayNote(node = {}) {
+  const manualNote = textValue(node.manualNote);
+  const systemNote = textValue(node.systemNote);
+  if (manualNote && systemNote) return `人工备注：${manualNote}\n系统记录：${systemNote}`;
+  return manualNote || systemNote || textValue(node.note || "-");
+}
+
 function nodeTimelineStatusClass(node = {}) {
   const status = textValue(node.status);
   if (status === "已完成" || node.completedAt) return "is-completed";
@@ -2796,6 +2803,7 @@ function renderNodeTimelineHtml(project) {
             const startedText = nodeTimeText(node.startedAtTime || node.startedAt, node.startedAt || "未开始");
             const completedText = nodeTimeText(node.completedAtTime || node.completedAt, node.completedAt || (status === "未开始" ? "-" : "进行中"));
             const operator = nodeOperatorText(node) || "-";
+            const noteText = nodeDisplayNote(node);
             const tipId = `node-tip-${project.id}-${index}`;
             const stateLabel = nodeTimelineStatusClass(node).includes("is-completed") ? "已完成" : "未完成";
             const detailTitle = [
@@ -2807,7 +2815,7 @@ function renderNodeTimelineHtml(project) {
               `本节点停留：${nodeDurationText(node)}`,
               `负责人：${node.owner || "未分配"}`,
               `操作人：${operator}`,
-              `备注：${node.note || "-"}`,
+              `备注：${noteText}`,
             ].join("\n");
             return `
               <article class="node-timeline-card ${nodeTimelineStatusClass(node)}">
@@ -2834,7 +2842,7 @@ function renderNodeTimelineHtml(project) {
                     <span>负责人：${escapeHtml(node.owner || "未分配")}</span>
                     <span>操作人：${escapeHtml(operator)}</span>
                   </div>
-                  <p class="node-timeline-note">备注：${escapeHtml(node.note || "-")}</p>
+                  <p class="node-timeline-note">备注：${escapeHtml(noteText)}</p>
                 </div>
               </article>`;
           }).join("")}
@@ -3175,8 +3183,67 @@ function recordProjectOperation(project, operator, action, detail, operationTime
   ].slice(0, 50);
 }
 
-function startCurrentProjectNode(project, operator, operationTime = new Date()) {
+function buildNodeNote(systemNote, manualNote = "") {
+  const cleanManualNote = textValue(manualNote);
+  return {
+    note: cleanManualNote ? `人工备注：${cleanManualNote}\n系统记录：${systemNote}` : systemNote,
+    manualNote: cleanManualNote,
+    systemNote,
+  };
+}
+
+function appendManualNoteToDetail(detail, manualNote = "") {
+  const cleanManualNote = textValue(manualNote);
+  return cleanManualNote ? `${detail}备注：${cleanManualNote}` : detail;
+}
+
+function requestNodeOperationNote(title) {
+  return new Promise((resolve) => {
+    const dialog = document.createElement("div");
+    dialog.className = "node-note-dialog";
+    dialog.innerHTML = `
+      <div class="node-note-panel" role="dialog" aria-modal="true" aria-labelledby="nodeNoteTitle">
+        <p class="section-kicker">节点备注</p>
+        <h3 id="nodeNoteTitle">${escapeHtml(title)}</h3>
+        <p class="mini-text">请填写本次节点操作的人工备注，例如特殊情况、交接说明、合同进展或需要后续注意的地方。</p>
+        <textarea class="node-note-input" rows="5" placeholder="请输入人工备注，必填"></textarea>
+        <p class="node-note-error" aria-live="polite"></p>
+        <div class="node-note-actions">
+          <button type="button" class="button button-secondary" data-node-note-cancel>取消</button>
+          <button type="button" class="button button-primary" data-node-note-confirm>确认并继续</button>
+        </div>
+      </div>`;
+    document.body.appendChild(dialog);
+
+    const input = dialog.querySelector(".node-note-input");
+    const error = dialog.querySelector(".node-note-error");
+    const close = (value) => {
+      dialog.remove();
+      resolve(value);
+    };
+    dialog.querySelector("[data-node-note-cancel]").addEventListener("click", () => close(null));
+    dialog.querySelector("[data-node-note-confirm]").addEventListener("click", () => {
+      const note = textValue(input.value);
+      if (!note) {
+        error.textContent = "请填写人工备注后再继续。";
+        input.focus();
+        return;
+      }
+      close(note);
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) close(null);
+    });
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") close(null);
+    });
+    setTimeout(() => input.focus(), 0);
+  });
+}
+
+function startCurrentProjectNode(project, operator, operationTime = new Date(), manualNote = "") {
   const nodeName = project.currentNode || defaultNodeForStatus(project.status, project.businessLineId);
+  const systemNote = `由 ${operator} 于 ${dateTimeString(operationTime)} 进入该节点。`;
   project.currentNode = nodeName;
   project.status = statusForNodeName(nodeName, project.status);
   project.nodes = mergeProjectNodes(project.nodes, nodeTransitionContext(project, operator, operationTime));
@@ -3188,16 +3255,18 @@ function startCurrentProjectNode(project, operator, operationTime = new Date()) 
       startedAt: dateString(operationTime),
       startedAtTime: dateTimeString(operationTime),
       startedBy: operator,
-      note: `由 ${operator} 于 ${dateTimeString(operationTime)} 进入该节点。`,
+      ...buildNodeNote(systemNote, manualNote),
     };
   });
-  recordProjectOperation(project, operator, "进入节点", `进入「${nodeName}」节点。`, operationTime);
+  recordProjectOperation(project, operator, "进入节点", appendManualNoteToDetail(`进入「${nodeName}」节点。`, manualNote), operationTime);
 }
 
-function advanceProjectNode(project, operator, operationTime = new Date()) {
+function advanceProjectNode(project, operator, operationTime = new Date(), manualNote = "") {
   const nextNode = nextNodeForProject(project);
   if (!nextNode) return false;
   const previousNode = project.currentNode;
+  const completedSystemNote = `由 ${operator} 于 ${dateTimeString(operationTime)} 完成并推进到下一节点。`;
+  const startedSystemNote = `由 ${operator} 于 ${dateTimeString(operationTime)} 进入该节点。`;
   project.currentNode = nextNode;
   project.status = statusForNodeName(nextNode, project.status);
   project.nodes = mergeProjectNodes(project.nodes, nodeTransitionContext(project, operator, operationTime));
@@ -3210,7 +3279,7 @@ function advanceProjectNode(project, operator, operationTime = new Date()) {
         completedAtTime: dateTimeString(operationTime),
         completed: dateString(operationTime),
         completedBy: operator,
-        note: `由 ${operator} 于 ${dateTimeString(operationTime)} 完成并推进到下一节点。`,
+        ...buildNodeNote(completedSystemNote, manualNote),
       };
     }
     if (node.name === nextNode) {
@@ -3224,17 +3293,18 @@ function advanceProjectNode(project, operator, operationTime = new Date()) {
         completedAtTime: "",
         completed: "",
         completedBy: "",
-        note: `由 ${operator} 于 ${dateTimeString(operationTime)} 进入该节点。`,
+        ...buildNodeNote(startedSystemNote),
       };
     }
     return node;
   });
-  recordProjectOperation(project, operator, "推进节点", `从「${previousNode}」进入「${nextNode}」节点。`, operationTime);
+  recordProjectOperation(project, operator, "推进节点", appendManualNoteToDetail(`从「${previousNode}」进入「${nextNode}」节点。`, manualNote), operationTime);
   return true;
 }
 
-function completeProjectFromDrawer(project, operator, operationTime = new Date()) {
+function completeProjectFromDrawer(project, operator, operationTime = new Date(), manualNote = "") {
   const previousNode = project.currentNode;
+  const systemNote = `由 ${operator} 于 ${dateTimeString(operationTime)} 标记完成。`;
   project.status = "已完成";
   const nodeNames = workflowNodeNamesForBusinessLine(project.businessLineId);
   project.currentNode = nodeNames[nodeNames.length - 1] || project.currentNode;
@@ -3248,10 +3318,10 @@ function completeProjectFromDrawer(project, operator, operationTime = new Date()
       completedAtTime: dateTimeString(operationTime),
       completed: dateString(operationTime),
       completedBy: operator,
-      note: `由 ${operator} 于 ${dateTimeString(operationTime)} 标记完成。`,
+      ...buildNodeNote(systemNote, manualNote),
     };
   });
-  recordProjectOperation(project, operator, "标记完成", `项目在「${previousNode}」节点标记完成。`, operationTime);
+  recordProjectOperation(project, operator, "标记完成", appendManualNoteToDetail(`项目在「${previousNode}」节点标记完成。`, manualNote), operationTime);
 }
 
 async function handleDrawerAction(action) {
@@ -3265,10 +3335,15 @@ async function handleDrawerAction(action) {
   const operator = currentUser().name || "后台用户";
   const operationTime = new Date();
   if (action === "start") {
-    startCurrentProjectNode(current, operator, operationTime);
+    const note = await requestNodeOperationNote(`准备开始「${current.currentNode}」节点。`);
+    if (note === null) return;
+    startCurrentProjectNode(current, operator, operationTime, note);
   }
   if (action === "advance") {
-    advanceProjectNode(current, operator, operationTime);
+    const nextNode = nextNodeForProject(current);
+    const note = await requestNodeOperationNote(`准备关闭「${current.currentNode}」节点，并进入「${nextNode}」节点。`);
+    if (note === null) return;
+    advanceProjectNode(current, operator, operationTime, note);
   }
   if (action === "pause") {
     current.status = current.status === "已暂停" ? "作者沟通中" : "已暂停";
@@ -3276,7 +3351,9 @@ async function handleDrawerAction(action) {
     recordProjectOperation(current, operator, current.status === "已暂停" ? "暂停项目" : "恢复项目", current.status === "已暂停" ? `暂停在「${current.currentNode}」节点。` : `恢复「${current.currentNode}」节点。`, operationTime);
   }
   if (action === "complete") {
-    completeProjectFromDrawer(current, operator, operationTime);
+    const note = await requestNodeOperationNote(`准备将「${current.title}」标记完成。`);
+    if (note === null) return;
+    completeProjectFromDrawer(current, operator, operationTime, note);
   }
   saveProjects();
   await flushRemoteSync();
