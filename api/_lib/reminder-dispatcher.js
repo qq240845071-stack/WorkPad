@@ -50,6 +50,12 @@ function confirmationPayload(reminder, scope, enabled = true) {
   };
 }
 
+function isDemoReminder(reminder) {
+  const id = String(reminder?.id || "");
+  const source = String(reminder?.source || "");
+  return id.startsWith("reminder-demo-") || source === "演示数据";
+}
+
 async function dispatchDueReminders({ dryRun = false } = {}) {
   const snapshot = await readStoredState();
   const state = snapshot.state;
@@ -57,7 +63,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
   const now = new Date();
   const dueItems = state.projects.flatMap((project) => normalizeProjectReminders(project)
     .map((reminder, index) => ({ project, reminder, reminderId: reminder.id, reminderIndex: index }))
-    .filter(({ reminder }) => shouldDispatchReminder(project, reminder, now)));
+    .filter(({ reminder }) => !isDemoReminder(reminder) && shouldDispatchReminder(project, reminder, now)));
   const results = [];
 
   for (const item of dueItems) {
@@ -167,7 +173,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
   state.publicReminders = normalizePublicReminders(state.publicReminders);
   const duePublicItems = state.publicReminders
     .map((reminder, index) => ({ reminder, reminderId: reminder.id, reminderIndex: index }))
-    .filter(({ reminder }) => shouldDispatchReminder({ status: "进行中" }, reminder, now));
+    .filter(({ reminder }) => !isDemoReminder(reminder) && shouldDispatchReminder({ status: "进行中" }, reminder, now));
 
   for (const item of duePublicItems) {
     const reminder = state.publicReminders.find((entry) => entry.id === item.reminderId) || state.publicReminders[item.reminderIndex];
