@@ -224,6 +224,19 @@ body::before {
   min-width: 360px;
 }
 
+.app-version {
+  align-self: flex-end;
+  padding: 5px 10px;
+  border: 1px solid rgba(164, 72, 47, 0.14);
+  border-radius: 999px;
+  color: rgba(164, 72, 47, 0.76);
+  background: rgba(255, 250, 241, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .segmented {
   display: inline-flex;
   padding: 4px;
