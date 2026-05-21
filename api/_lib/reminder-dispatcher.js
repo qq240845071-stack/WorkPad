@@ -58,19 +58,69 @@ function isDemoReminder(reminder) {
 
 async function dispatchDueReminders({ dryRun = false } = {}) {
   const snapshot = await readStoredState();
-  const state = snapshot.state;
+  let state = snapshot.state;
   const confirmationEnabled = state.confirmablePushEnabled !== false;
   const now = new Date();
   const dueItems = state.projects.flatMap((project) => normalizeProjectReminders(project)
-    .map((reminder, index) => ({ project, reminder, reminderId: reminder.id, reminderIndex: index }))
+    .map((reminder, index) => ({ project, projectId: project.id, projectCode: project.code, reminder, reminderId: reminder.id, reminderIndex: index }))
     .filter(({ reminder }) => !isDemoReminder(reminder) && shouldDispatchReminder(project, reminder, now)));
   const results = [];
 
   for (const item of dueItems) {
-    const { project } = item;
+    let { project } = item;
     project.reminders = normalizeProjectReminders(project);
-    const reminder = project.reminders.find((entry) => entry.id === item.reminderId) || project.reminders[item.reminderIndex];
+    let reminder = project.reminders.find((entry) => entry.id === item.reminderId) || project.reminders[item.reminderIndex];
     if (!reminder) continue;
+
+    if (!dryRun) {
+      const dispatchToken = `dispatch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const lockSnapshot = await readStoredState();
+      const lockState = lockSnapshot.state;
+      const lockProject = (Array.isArray(lockState.projects) ? lockState.projects : []).find((entry) => entry.id === item.projectId || entry.code === item.projectCode);
+      if (!lockProject) continue;
+      lockProject.reminders = normalizeProjectReminders(lockProject);
+      const lockReminder = lockProject.reminders.find((entry) => entry.id === item.reminderId) || lockProject.reminders[item.reminderIndex];
+      if (!lockReminder || isDemoReminder(lockReminder) || !shouldDispatchReminder(lockProject, lockReminder, new Date())) {
+        results.push({
+          projectId: item.projectId,
+          projectCode: item.projectCode,
+          reminderId: item.reminderId,
+          ok: true,
+          skipped: true,
+          reason: "提醒正在发送或已经处理完成。",
+        });
+        continue;
+      }
+      reminder = lockReminder;
+      project = lockProject;
+      reminder.status = "sending";
+      reminder.pending = true;
+      reminder.lastAttemptAt = now.toISOString();
+      reminder.dispatchToken = dispatchToken;
+      syncProjectReminderFields(project);
+      await writeStoredState(lockState);
+
+      const verifySnapshot = await readStoredState();
+      const verifyState = verifySnapshot.state;
+      const verifiedProject = (Array.isArray(verifyState.projects) ? verifyState.projects : []).find((entry) => entry.id === item.projectId || entry.code === item.projectCode);
+      if (!verifiedProject) continue;
+      verifiedProject.reminders = normalizeProjectReminders(verifiedProject);
+      const verifiedReminder = verifiedProject.reminders.find((entry) => entry.id === item.reminderId) || verifiedProject.reminders[item.reminderIndex];
+      if (!verifiedReminder || verifiedReminder.dispatchToken !== dispatchToken || verifiedReminder.status !== "sending") {
+        results.push({
+          projectId: item.projectId,
+          projectCode: item.projectCode,
+          reminderId: item.reminderId,
+          ok: true,
+          skipped: true,
+          reason: "提醒发送锁已被其他任务占用。",
+        });
+        continue;
+      }
+      state = verifyState;
+      project = verifiedProject;
+      reminder = verifiedReminder;
+    }
 
     const member = findMember(state, reminder.person);
     let content = buildReminderMessage(project, reminder);
@@ -87,6 +137,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
     if (!member || !member.wecomUserId) {
       reminder.status = "failed";
       reminder.pending = true;
+      reminder.dispatchToken = "";
       reminder.lastAttemptAt = now.toISOString();
       reminder.lastError = "提醒人还没有绑定企微账号 UserId。";
       reminder.attempts = Number(reminder.attempts || 0) + 1;
@@ -121,6 +172,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
       });
       reminder.pending = false;
       reminder.status = "sent";
+      reminder.dispatchToken = "";
       reminder.sentAt = now.toISOString();
       reminder.lastAttemptAt = now.toISOString();
       reminder.lastError = "";
@@ -150,6 +202,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
     } catch (error) {
       reminder.status = "failed";
       reminder.pending = true;
+      reminder.dispatchToken = "";
       reminder.lastAttemptAt = now.toISOString();
       reminder.lastError = error instanceof Error ? error.message : String(error);
       reminder.attempts = Number(reminder.attempts || 0) + 1;
@@ -176,8 +229,49 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
     .filter(({ reminder }) => !isDemoReminder(reminder) && shouldDispatchReminder({ status: "进行中" }, reminder, now));
 
   for (const item of duePublicItems) {
-    const reminder = state.publicReminders.find((entry) => entry.id === item.reminderId) || state.publicReminders[item.reminderIndex];
+    let reminder = state.publicReminders.find((entry) => entry.id === item.reminderId) || state.publicReminders[item.reminderIndex];
     if (!reminder) continue;
+
+    if (!dryRun) {
+      const dispatchToken = `dispatch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const lockSnapshot = await readStoredState();
+      const lockState = lockSnapshot.state;
+      lockState.publicReminders = normalizePublicReminders(lockState.publicReminders);
+      const lockReminder = lockState.publicReminders.find((entry) => entry.id === item.reminderId) || lockState.publicReminders[item.reminderIndex];
+      if (!lockReminder || isDemoReminder(lockReminder) || !shouldDispatchReminder({ status: "进行中" }, lockReminder, new Date())) {
+        results.push({
+          scope: "public",
+          reminderId: item.reminderId,
+          ok: true,
+          skipped: true,
+          reason: "公共提醒正在发送或已经处理完成。",
+        });
+        continue;
+      }
+      reminder = lockReminder;
+      reminder.status = "sending";
+      reminder.pending = true;
+      reminder.lastAttemptAt = now.toISOString();
+      reminder.dispatchToken = dispatchToken;
+      await writeStoredState(lockState);
+
+      const verifySnapshot = await readStoredState();
+      const verifyState = verifySnapshot.state;
+      verifyState.publicReminders = normalizePublicReminders(verifyState.publicReminders);
+      const verifiedReminder = verifyState.publicReminders.find((entry) => entry.id === item.reminderId) || verifyState.publicReminders[item.reminderIndex];
+      if (!verifiedReminder || verifiedReminder.dispatchToken !== dispatchToken || verifiedReminder.status !== "sending") {
+        results.push({
+          scope: "public",
+          reminderId: item.reminderId,
+          ok: true,
+          skipped: true,
+          reason: "公共提醒发送锁已被其他任务占用。",
+        });
+        continue;
+      }
+      state = verifyState;
+      reminder = verifiedReminder;
+    }
 
     const member = findMember(state, reminder.person);
     let content = buildPublicReminderMessage(reminder);
@@ -192,6 +286,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
     if (!member || !member.wecomUserId) {
       reminder.status = "failed";
       reminder.pending = true;
+      reminder.dispatchToken = "";
       reminder.lastAttemptAt = now.toISOString();
       reminder.lastError = "提醒人还没有绑定企微账号 UserId。";
       reminder.attempts = Number(reminder.attempts || 0) + 1;
@@ -224,6 +319,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
       });
       reminder.pending = false;
       reminder.status = "sent";
+      reminder.dispatchToken = "";
       reminder.sentAt = now.toISOString();
       reminder.lastAttemptAt = now.toISOString();
       reminder.lastError = "";
@@ -241,6 +337,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
     } catch (error) {
       reminder.status = "failed";
       reminder.pending = true;
+      reminder.dispatchToken = "";
       reminder.lastAttemptAt = now.toISOString();
       reminder.lastError = error instanceof Error ? error.message : String(error);
       reminder.attempts = Number(reminder.attempts || 0) + 1;

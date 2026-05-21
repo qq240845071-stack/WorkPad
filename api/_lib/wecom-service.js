@@ -5,6 +5,7 @@ const { appendProjectReminder, appendPublicReminder, normalizeProjectReminders, 
 const { appendPushLog } = require("./push-log");
 
 const MESSAGE_DEDUPE_TTL_MS = 10 * 60 * 1000;
+const QUEUED_MESSAGE_RETRY_MS = 10 * 60 * 1000;
 const recentMessageKeys = new Map();
 
 function nowDate() {
@@ -116,6 +117,22 @@ function dedupeWecomInbox(state) {
     return true;
   }).slice(0, 200);
   return removedCount;
+}
+
+function parseStoredTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+  const date = new Date(normalized);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function shouldProcessQueuedInboxItem(item, nowMs = Date.now()) {
+  if (!item || item.msgType !== "voice" || (!item.mediaId && !item.transcript)) return false;
+  if (item.status === "queued") return true;
+  if (item.status !== "processing" || item.activeReplySent) return false;
+  const startedAt = parseStoredTime(item.processingStartedAtIso || item.processingStartedAt);
+  return !startedAt || nowMs - startedAt.getTime() > QUEUED_MESSAGE_RETRY_MS;
 }
 
 function friendlyWecomError(payload, fallback) {
@@ -886,9 +903,7 @@ async function handleIncomingMessage(message, options = {}) {
       transcriptSource: recognition ? "wecom-recognition" : "",
       status: message.MsgType === "voice" ? "queued" : "received",
     });
-    if (message.MsgType === "voice") {
-      await writeStoredState(state);
-    }
+    await writeStoredState(state);
   }
 
   async function saveWithReply(replyText, extra = {}, replyStatus = "done") {
@@ -1105,8 +1120,9 @@ async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
   const state = snapshot.state;
   const dedupedCount = dedupeWecomInbox(state);
   const inbox = Array.isArray(state.wecomInbox) ? state.wecomInbox : [];
+  const nowMs = Date.now();
   const candidates = inbox
-    .filter((item) => item.msgType === "voice" && (item.mediaId || item.transcript) && ["queued", "processing"].includes(item.status))
+    .filter((item) => shouldProcessQueuedInboxItem(item, nowMs))
     .slice(0, Math.max(1, Number(limit) || 3));
   const results = [];
 
@@ -1132,11 +1148,42 @@ async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
   }
 
   for (const item of candidates) {
-    updateInboxByKey(state, item.messageKey, {
+    const processingToken = `proc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const lockSnapshot = await readStoredState();
+    const lockState = lockSnapshot.state;
+    const latestItem = (Array.isArray(lockState.wecomInbox) ? lockState.wecomInbox : []).find((entry) => entry.messageKey === item.messageKey);
+    if (!shouldProcessQueuedInboxItem(latestItem)) {
+      results.push({
+        ok: true,
+        skipped: true,
+        reason: "消息正在处理中或已经处理完成。",
+        messageKey: item.messageKey,
+        actor: item.actor,
+      });
+      continue;
+    }
+
+    updateInboxByKey(lockState, item.messageKey, {
       status: "processing",
+      processingToken,
       processingStartedAt: dateTimeString(nowDate()),
+      processingStartedAtIso: new Date().toISOString(),
     });
-    await writeStoredState(state);
+    await writeStoredState(lockState);
+
+    const verifySnapshot = await readStoredState();
+    const verifyState = verifySnapshot.state;
+    const lockedItem = (Array.isArray(verifyState.wecomInbox) ? verifyState.wecomInbox : []).find((entry) => entry.messageKey === item.messageKey);
+    if (!lockedItem || lockedItem.processingToken !== processingToken || lockedItem.status !== "processing") {
+      results.push({
+        ok: true,
+        skipped: true,
+        reason: "消息处理锁已被其他任务占用。",
+        messageKey: item.messageKey,
+        actor: item.actor,
+      });
+      continue;
+    }
 
     try {
       const result = await handleIncomingMessage({
@@ -1162,6 +1209,7 @@ async function processQueuedWecomMessages({ limit = 3, dryRun = false } = {}) {
       const message = error instanceof Error ? error.message : String(error);
       updateInboxByKey(latestState, item.messageKey, {
         status: "failed",
+        processingToken: "",
         replyText: `语音命令处理失败：${message}`,
         activeReplyError: message,
       });

@@ -53,6 +53,7 @@ function normalizeReminderItem(item, project, index = 0) {
     lastAttemptAt: textValue(source.lastAttemptAt || project.reminderNotificationLastAttemptAt || ""),
     lastError: textValue(source.lastError || project.reminderNotificationLastError || ""),
     attempts: Number(source.attempts ?? source.reminderNotificationAttempts ?? 0) || 0,
+    dispatchToken: textValue(source.dispatchToken || ""),
     confirmable: booleanValue(source.confirmable, true),
     confirmationToken: textValue(source.confirmationToken || source.confirmToken || ""),
     confirmationUrl: textValue(source.confirmationUrl || ""),
@@ -255,10 +256,12 @@ function parseChinaReminderDate(value) {
 function shouldDispatchReminder(project, reminder, now) {
   if (!project || project.status === "已完成") return false;
   if (!reminder.pending) return false;
-  if (reminder.status === "sent" || reminder.status === "completed") return false;
+  const status = textValue(reminder.status);
+  if (status === "sent" || status === "completed" || status === "cancelled") return false;
   const dueAt = parseChinaReminderDate(reminder.date);
   if (!dueAt || dueAt.getTime() > now.getTime()) return false;
   const lastAttempt = reminder.lastAttemptAt ? new Date(reminder.lastAttemptAt) : null;
+  if (status === "sending" && lastAttempt && Number.isFinite(lastAttempt.getTime()) && now.getTime() - lastAttempt.getTime() < RETRY_INTERVAL_MS) return false;
   if (lastAttempt && Number.isFinite(lastAttempt.getTime()) && now.getTime() - lastAttempt.getTime() < RETRY_INTERVAL_MS) return false;
   return true;
 }
