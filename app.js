@@ -78,6 +78,7 @@ const DEFAULT_ROLES = [
 const ROLE_PERMISSION_ROWS = [
   ["查看全部项目", "可以查看所有项目和风险清单", "是", "是", "是", "是"],
   ["编辑项目状态", "可以修改状态、节点、提醒信息", "是", "是", "是", "否"],
+  ["删除订单", "可以删除订单及订单内提醒任务", "是", "否", "否", "否"],
   ["管理人员", "可以维护成员名单和身份", "是", "否", "否", "否"],
   ["管理权限", "可以配置角色权限", "是", "否", "否", "否"],
   ["管理合作方", "可以维护合作方主数据", "是", "是", "否", "否"],
@@ -2847,6 +2848,7 @@ function renderDrawer() {
   }
   const risk = getProjectRisk(project);
   const canEditProject = hasPermission("编辑项目状态");
+  const canDeleteProject = hasPermission("删除订单");
   const reminders = normalizeProjectReminders(project);
   const nextNode = nextNodeForProject(project);
   const startActionHtml = project.status === "待启动"
@@ -2891,6 +2893,7 @@ function renderDrawer() {
           <button type="button" class="button button-secondary" data-drawer-action="edit" ${canEditProject ? "" : "disabled"}>编辑基础信息</button>
           <button type="button" class="button button-secondary" data-drawer-action="pause" ${canEditProject ? "" : "disabled"}>${project.status === "已暂停" ? "恢复项目" : "暂停项目"}</button>
           <button type="button" class="button button-primary" data-drawer-action="complete" ${canEditProject ? "" : "disabled"}>标记完成</button>
+          <button type="button" class="button button-danger" data-drawer-action="delete" ${canDeleteProject ? "" : "disabled"}>删除订单</button>
         </div>
         <p class="mini-text">${escapeHtml(risk.reasons.join(" / "))}</p>
       </section>
@@ -3311,9 +3314,22 @@ function completeProjectFromDrawer(project, operator, operationTime = new Date()
 }
 
 async function handleDrawerAction(action) {
-  if (!hasPermission("编辑项目状态")) return;
   const current = state.projects.find((item) => item.id === state.selectedProjectId);
   if (!current) return;
+
+  if (action === "delete") {
+    if (!hasPermission("删除订单")) return;
+    const confirmed = window.confirm(`确定删除订单「${current.title}」吗？\n\n订单编号：${current.code}\n订单内的提醒任务会一起删除，历史推送记录会保留用于追溯。`);
+    if (!confirmed) return;
+    state.projects = state.projects.filter((project) => project.id !== current.id);
+    closeDrawer();
+    saveProjects();
+    await flushRemoteSync();
+    render();
+    return;
+  }
+
+  if (!hasPermission("编辑项目状态")) return;
   if (action === "edit") {
     openModal(current);
     return;

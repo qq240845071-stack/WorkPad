@@ -349,6 +349,11 @@ body::before {
   background: rgba(35, 64, 77, 0.1);
 }
 
+.button-danger {
+  color: #7f311d;
+  background: rgba(164, 72, 47, 0.12);
+}
+
 .button-ghost {
   color: var(--ink);
   border: 1px solid rgba(31, 36, 48, 0.12);
