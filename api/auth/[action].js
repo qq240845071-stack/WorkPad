@@ -1,8 +1,8 @@
 const { readStoredState, writeStoredState } = require("../_lib/store");
 const {
+  applyAuthPolicy,
   clearSessionCookie,
   createSessionToken,
-  ensureMemberUsernames,
   findMemberForLogin,
   initialPassword,
   memberUsesInitialPassword,
@@ -54,7 +54,7 @@ async function handleLogin(req, res) {
 
   const snapshot = await readStoredState();
   const state = snapshot.state;
-  let changed = ensureMemberUsernames(state);
+  let changed = applyAuthPolicy(state);
   const member = findMemberForLogin(state, username);
   if (!member) {
     return sendJson(res, 401, { ok: false, message: "用户名或密码不正确。" });
@@ -120,10 +120,7 @@ async function handleResetPassword(req, res) {
   const member = auth.state.teamMembers.find((item) => item.id === memberId);
   if (!member) return sendJson(res, 404, { ok: false, message: "没有找到要重置密码的人员。" });
 
-  const temporaryPassword = String(body.password || "").trim() || initialPassword();
-  if (temporaryPassword.length < 6) {
-    return sendJson(res, 400, { ok: false, message: "临时密码至少需要 6 位。" });
-  }
+  const temporaryPassword = initialPassword();
   setMemberPassword(member, temporaryPassword, { resetRequired: true });
   await writeStoredState(auth.state);
   return sendJson(res, 200, {
@@ -135,6 +132,33 @@ async function handleResetPassword(req, res) {
   });
 }
 
+async function handleChangePassword(req, res) {
+  if (req.method !== "POST") {
+    return sendJson(res, 405, { ok: false, message: "当前接口只支持 POST。" });
+  }
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+
+  const body = await readJsonBody(req);
+  const currentPassword = String(body.currentPassword || "");
+  const nextPassword = String(body.nextPassword || "");
+  if (!currentPassword || !nextPassword) {
+    return sendJson(res, 400, { ok: false, message: "请输入当前密码和新密码。" });
+  }
+  if (!verifyMemberPassword(auth.member, currentPassword)) {
+    return sendJson(res, 401, { ok: false, message: "当前密码不正确。" });
+  }
+  if (nextPassword.length < 6) {
+    return sendJson(res, 400, { ok: false, message: "新密码至少需要 6 位。" });
+  }
+  setMemberPassword(auth.member, nextPassword, { resetRequired: false });
+  await writeStoredState(auth.state);
+  return sendJson(res, 200, {
+    ok: true,
+    message: "密码已修改，下次登录请使用新密码。",
+  });
+}
+
 module.exports = async (req, res) => {
   try {
     const action = authAction(req);
@@ -142,6 +166,7 @@ module.exports = async (req, res) => {
     if (action === "me") return await handleMe(req, res);
     if (action === "logout") return handleLogout(req, res);
     if (action === "reset-password") return await handleResetPassword(req, res);
+    if (action === "change-password") return await handleChangePassword(req, res);
     return sendJson(res, 404, { ok: false, message: "未识别的登录接口。" });
   } catch (error) {
     return sendJson(res, 500, {

@@ -2,7 +2,6 @@ const { readStoredState, writeStoredState } = require("./store");
 const { getConfig } = require("./wecom-crypto");
 const { createAudioTranscription, createChatCompletion } = require("./ai-client");
 const { appendProjectReminder, appendPublicReminder, normalizeProjectReminders, normalizePublicReminders, syncProjectReminderFields } = require("./reminders");
-const { appendPushLog } = require("./push-log");
 
 const MESSAGE_DEDUPE_TTL_MS = 10 * 60 * 1000;
 const QUEUED_MESSAGE_RETRY_MS = 10 * 60 * 1000;
@@ -75,13 +74,6 @@ function shouldStoreIncomingMessage(message) {
 
 function messageKey(message) {
   return String(message.MsgId || message.MsgID || [message.FromUserName, message.CreateTime, message.MsgType, message.Content || message.MediaId].join(":")).trim();
-}
-
-function commandReplyLogId(key) {
-  const safeKey = String(key || "")
-    .replace(/[^a-zA-Z0-9_-]/g, "")
-    .slice(0, 72);
-  return `command-reply-${safeKey || Date.now()}`;
 }
 
 function rememberMessageKey(key) {
@@ -915,17 +907,6 @@ async function handleIncomingMessage(message, options = {}) {
       transcriptSource: transcript?.source || "",
     });
     if (options.forceActiveReply || replyText.startsWith("您发布的")) {
-      const logId = commandReplyLogId(key);
-      appendPushLog(state, {
-        id: logId,
-        content: replyText,
-        actor: "WorkPad 管家",
-        receiver: actor,
-        receiverUserId: message.FromUserName,
-        success: false,
-        status: "待发送",
-        source: "命令反馈",
-      });
       let saved = await writeStoredState(state);
       try {
         await sendAppTextMessage({ toUser: message.FromUserName, content: replyText });
@@ -933,35 +914,12 @@ async function handleIncomingMessage(message, options = {}) {
           activeReplySent: true,
           activeReplySentAt: dateTimeString(nowDate()),
         });
-        appendPushLog(state, {
-          id: logId,
-          content: replyText,
-          actor: "WorkPad 管家",
-          receiver: actor,
-          receiverUserId: message.FromUserName,
-          success: true,
-          status: "成功",
-          source: "命令反馈",
-          pushedAt: new Date().toISOString(),
-        });
         saved = await writeStoredState(state);
         return { replyText: "", snapshot: saved, activeReplySent: true, ...extra };
       } catch (error) {
         const activeReplyError = error instanceof Error ? error.message : String(error);
         updateInboxByKey(state, key, {
           activeReplyError,
-        });
-        appendPushLog(state, {
-          id: logId,
-          content: replyText,
-          actor: "WorkPad 管家",
-          receiver: actor,
-          receiverUserId: message.FromUserName,
-          success: false,
-          status: "失败",
-          source: "命令反馈",
-          error: activeReplyError,
-          pushedAt: new Date().toISOString(),
         });
         saved = await writeStoredState(state);
       }

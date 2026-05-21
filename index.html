@@ -20,7 +20,7 @@
         <form class="login-form" id="loginForm">
           <label class="field field-full">
             <span>用户名</span>
-            <input id="loginUsername" name="username" type="text" autocomplete="username" placeholder="例如 admin / z.y" required />
+            <input id="loginUsername" name="username" type="text" autocomplete="username" placeholder="例如 zhangying" required />
           </label>
           <label class="field field-full">
             <span>密码</span>
@@ -35,7 +35,7 @@
           企业微信扫码登录需要先在企业微信后台配置网页授权/扫码登录回调域名；未配置前先使用用户名密码登录。
         </div>
         <div class="login-hint">
-          初始管理员账号：<strong>admin</strong>；初始密码由服务器配置决定，未配置时使用 <strong>WorkPad@2026</strong>。
+          人员账号使用姓名全拼小写；初始密码统一为 <strong>111111</strong>，登录后可自行修改。
         </div>
       </div>
     </section>
@@ -75,6 +75,7 @@
           <div class="hero-action-row">
             <button type="button" class="button button-primary" id="newProjectButton">新建项目</button>
             <button type="button" class="button button-ghost" id="resetDemoButton">重置演示数据</button>
+            <button type="button" class="button button-secondary" id="changePasswordButton">修改密码</button>
             <button type="button" class="button button-muted" id="logoutButton">退出登录</button>
           </div>
         </div>

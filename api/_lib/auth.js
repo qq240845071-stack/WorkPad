@@ -1,9 +1,47 @@
 const crypto = require("node:crypto");
-const { readStoredState } = require("./store");
+const { readStoredState, writeStoredState } = require("./store");
 
 const SESSION_COOKIE = "workpad_session";
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
-const DEFAULT_INITIAL_PASSWORD = "WorkPad@2026";
+const DEFAULT_INITIAL_PASSWORD = "111111";
+const AUTH_POLICY_VERSION = "pinyin-111111-v1";
+
+const NAME_PINYIN_OVERRIDES = {
+  周雯: "zhouwen",
+  许畅: "xuchang",
+  王黎: "wangli",
+  刘珂: "liuke",
+  陈敏: "chenmin",
+  孙妍: "sunyan",
+  贾涛: "jiatao",
+  张莹: "zhangying",
+  王勇: "wangyong",
+  周丽梅: "zhoulimei",
+  周立梅: "zhoulimei",
+};
+
+const HAN_PINYIN = {
+  陈: "chen",
+  畅: "chang",
+  贾: "jia",
+  珂: "ke",
+  黎: "li",
+  丽: "li",
+  立: "li",
+  刘: "liu",
+  梅: "mei",
+  敏: "min",
+  孙: "sun",
+  涛: "tao",
+  王: "wang",
+  雯: "wen",
+  许: "xu",
+  妍: "yan",
+  勇: "yong",
+  张: "zhang",
+  周: "zhou",
+  莹: "ying",
+};
 
 function textValue(value) {
   return String(value ?? "").trim();
@@ -29,15 +67,11 @@ function authSecret() {
 }
 
 function initialPassword() {
-  return process.env.WORKPAD_INITIAL_PASSWORD || DEFAULT_INITIAL_PASSWORD;
+  return DEFAULT_INITIAL_PASSWORD;
 }
 
 function initialPasswordCandidates() {
-  return [...new Set([
-    initialPassword(),
-    DEFAULT_INITIAL_PASSWORD,
-    "Workpad@2026",
-  ].filter(Boolean))];
+  return [DEFAULT_INITIAL_PASSWORD];
 }
 
 function passwordMatchesInitial(password) {
@@ -92,12 +126,23 @@ function clearSessionCookie() {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
+function normalizeUsername(value) {
+  return textValue(value).toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 32);
+}
+
+function usernameFromName(name, fallback = "") {
+  const raw = textValue(name).replace(/[·\s。,.，、_-]+/g, "");
+  if (NAME_PINYIN_OVERRIDES[raw]) return NAME_PINYIN_OVERRIDES[raw];
+  const converted = Array.from(raw).map((char) => {
+    if (/^[a-z0-9]$/i.test(char)) return char.toLowerCase();
+    return HAN_PINYIN[char] || "";
+  }).join("");
+  return normalizeUsername(converted) || normalizeUsername(fallback);
+}
+
 function defaultUsername(member, index = 0) {
-  const existing = textValue(member.username);
-  if (existing) return existing;
-  if (index === 0 || member.role === "超级管理员") return "admin";
-  const wecomUserId = textValue(member.wecomUserId);
-  if (wecomUserId) return wecomUserId;
+  const generated = usernameFromName(member.name);
+  if (generated) return generated;
   const id = textValue(member.id).replace(/^user-/, "");
   if (/^[a-z0-9._-]{2,}$/i.test(id)) return id.toLowerCase();
   return `user${index + 1}`;
@@ -113,6 +158,19 @@ function ensureMemberUsernames(state) {
     if (member.username !== username) changed = true;
     return { ...member, username };
   });
+  return changed;
+}
+
+function applyAuthPolicy(state, { forcePasswordReset = false } = {}) {
+  let changed = ensureMemberUsernames(state);
+  const needsPolicyReset = forcePasswordReset || state.authPolicyVersion !== AUTH_POLICY_VERSION;
+  if (needsPolicyReset) {
+    (Array.isArray(state.teamMembers) ? state.teamMembers : []).forEach((member) => {
+      setMemberPassword(member, initialPassword(), { resetRequired: true });
+    });
+    state.authPolicyVersion = AUTH_POLICY_VERSION;
+    changed = true;
+  }
   return changed;
 }
 
@@ -185,11 +243,12 @@ function mergeMemberAuthFields(nextState, previousState) {
   const previousMembers = Array.isArray(previousState.teamMembers) ? previousState.teamMembers : [];
   const byId = new Map(previousMembers.map((member) => [member.id, member]));
   const byName = new Map(previousMembers.map((member) => [member.name, member]));
+  nextState.authPolicyVersion = previousState.authPolicyVersion || nextState.authPolicyVersion || "";
   nextState.teamMembers = (Array.isArray(nextState.teamMembers) ? nextState.teamMembers : []).map((member, index) => {
     const previous = byId.get(member.id) || byName.get(member.name) || {};
     return {
       ...member,
-      username: textValue(member.username || previous.username || defaultUsername(member, index)).toLowerCase(),
+      username: defaultUsername(member, index),
       passwordHash: previous.passwordHash || "",
       passwordSalt: previous.passwordSalt || "",
       passwordResetRequired: Boolean(previous.passwordResetRequired),
@@ -215,7 +274,8 @@ async function requireAuth(req, res) {
     return null;
   }
   const snapshot = await readStoredState();
-  ensureMemberUsernames(snapshot.state);
+  const changed = applyAuthPolicy(snapshot.state);
+  if (changed) await writeStoredState(snapshot.state);
   const member = snapshot.state.teamMembers.find((item) => item.id === session.memberId);
   if (!member) {
     res.setHeader("Set-Cookie", clearSessionCookie());
@@ -230,8 +290,10 @@ function wecomScanLoginAvailable() {
 }
 
 module.exports = {
+  applyAuthPolicy,
   clearSessionCookie,
   createSessionToken,
+  defaultUsername,
   ensureMemberUsernames,
   findMemberForLogin,
   initialPassword,
@@ -244,6 +306,7 @@ module.exports = {
   sanitizeStateForClient,
   sessionCookie,
   setMemberPassword,
+  usernameFromName,
   verifyMemberPassword,
   wecomScanLoginAvailable,
 };

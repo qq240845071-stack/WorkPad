@@ -1,7 +1,6 @@
 const { readStoredState, writeStoredState } = require("../_lib/store");
 const { completeReminderByToken, normalizeProjectReminders, normalizePublicReminders } = require("../_lib/reminders");
 const { findMember, sendAppTextMessage } = require("../_lib/wecom-service");
-const { appendPushLog } = require("../_lib/push-log");
 
 const MAX_NOTE_LENGTH = 600;
 
@@ -103,49 +102,17 @@ async function notifyReminderActor(state, result) {
   if (!actorName || actorName === "WorkPad 管家") return { skipped: true, reason: "没有可通知的发起人。" };
   const actorMember = findMember(state, actorName);
   const content = buildCompletionReceipt(result);
-  const logPayload = {
-    content,
-    actor: "WorkPad 管家",
-    receiver: actorName,
-    receiverUserId: actorMember?.wecomUserId || "",
-    source: "确认回执",
-    projectCode: result.scope === "project" ? result.project?.code : "",
-    projectTitle: result.scope === "project" ? result.project?.title : "",
-    reminderId: result.reminder.id,
-    reminderScope: result.scope,
-  };
 
   if (!actorMember || !actorMember.wecomUserId) {
     const error = "提醒发起人还没有绑定企业微信账号 UserId。";
-    appendPushLog(state, {
-      ...logPayload,
-      success: false,
-      status: "失败",
-      error,
-    });
     return { ok: false, error };
   }
 
   try {
     await sendAppTextMessage({ toUser: actorMember.wecomUserId, content });
-    appendPushLog(state, {
-      ...logPayload,
-      receiver: actorMember.name,
-      receiverUserId: actorMember.wecomUserId,
-      success: true,
-      status: "成功",
-    });
     return { ok: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    appendPushLog(state, {
-      ...logPayload,
-      receiver: actorMember.name,
-      receiverUserId: actorMember.wecomUserId,
-      success: false,
-      status: "失败",
-      error: message,
-    });
     return { ok: false, error: message };
   }
 }

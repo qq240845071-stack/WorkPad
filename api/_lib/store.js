@@ -225,7 +225,7 @@ function normalizePushLogs(pushLogs) {
 function normalizeState(rawState) {
   const seed = createDefaultState();
   const state = rawState && typeof rawState === "object" ? rawState : {};
-  const projects = Array.isArray(state.projects) && state.projects.length ? normalizeProjects(state.projects) : seed.projects;
+  const projects = Array.isArray(state.projects) ? normalizeProjects(state.projects) : seed.projects;
   const teamMembers = Array.isArray(state.teamMembers) && state.teamMembers.length ? state.teamMembers : seed.teamMembers;
   const roles = normalizeRoles(state.roles);
   const workflowConfig = Array.isArray(state.workflowConfig) && state.workflowConfig.length ? normalizeWorkflowNodes(state.workflowConfig) : seed.workflowConfig;
@@ -236,6 +236,7 @@ function normalizeState(rawState) {
   });
   return {
     version: 2,
+    authPolicyVersion: String(state.authPolicyVersion || ""),
     projects: normalizedProjects,
     teamMembers,
     departments: normalizeDepartments(state.departments, teamMembers),

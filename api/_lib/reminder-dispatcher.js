@@ -34,12 +34,13 @@ function buildPublicReminderMessage(reminder) {
 
 function withConfirmationLink(content, reminder, enabled = true) {
   if (!enabled) return content;
+  reminder.confirmable = true;
   const url = ensureReminderConfirmation(reminder);
   return url ? `${content}\n\n完成后点击确认：${url}` : content;
 }
 
 function confirmationPayload(reminder, scope, enabled = true) {
-  const confirmable = enabled && reminder.confirmable !== false;
+  const confirmable = Boolean(enabled);
   return {
     confirmable,
     confirmationToken: confirmable ? reminder.confirmationToken || "" : "",
@@ -51,15 +52,14 @@ function confirmationPayload(reminder, scope, enabled = true) {
 }
 
 function isDemoReminder(reminder) {
-  const id = String(reminder?.id || "");
   const source = String(reminder?.source || "");
-  return id.startsWith("reminder-demo-") || source === "演示数据";
+  return source === "演示数据";
 }
 
 async function dispatchDueReminders({ dryRun = false } = {}) {
   const snapshot = await readStoredState();
   let state = snapshot.state;
-  const confirmationEnabled = state.confirmablePushEnabled !== false;
+  const confirmationEnabled = true;
   const now = new Date();
   const dueItems = state.projects.flatMap((project) => normalizeProjectReminders(project)
     .map((reminder, index) => ({ project, projectId: project.id, projectCode: project.code, reminder, reminderId: reminder.id, reminderIndex: index }))

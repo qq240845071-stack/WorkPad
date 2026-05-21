@@ -17,6 +17,44 @@ const STATUS_ORDER = [
 
 const NODE_ORDER = ["作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", "尾印单"];
 const DEFAULT_BUSINESS_LINE_ID = "line-publishing";
+const DEFAULT_INITIAL_PASSWORD = "111111";
+
+const NAME_PINYIN_OVERRIDES = {
+  周雯: "zhouwen",
+  许畅: "xuchang",
+  王黎: "wangli",
+  刘珂: "liuke",
+  陈敏: "chenmin",
+  孙妍: "sunyan",
+  贾涛: "jiatao",
+  张莹: "zhangying",
+  王勇: "wangyong",
+  周丽梅: "zhoulimei",
+  周立梅: "zhoulimei",
+};
+
+const HAN_PINYIN = {
+  陈: "chen",
+  畅: "chang",
+  贾: "jia",
+  珂: "ke",
+  黎: "li",
+  丽: "li",
+  立: "li",
+  刘: "liu",
+  梅: "mei",
+  敏: "min",
+  孙: "sun",
+  涛: "tao",
+  王: "wang",
+  雯: "wen",
+  许: "xu",
+  妍: "yan",
+  勇: "yong",
+  张: "zhang",
+  周: "zhou",
+  莹: "ying",
+};
 
 const STATUS_META = {
   待启动: { tone: "#8d6e46", description: "尚未正式进入执行节奏" },
@@ -286,6 +324,7 @@ const elements = {
   newProjectButton: document.getElementById("newProjectButton"),
   resetDemoButton: document.getElementById("resetDemoButton"),
   logoutButton: document.getElementById("logoutButton"),
+  changePasswordButton: document.getElementById("changePasswordButton"),
   searchInput: document.getElementById("searchInput"),
   ownerFilter: document.getElementById("ownerFilter"),
   statusFilter: document.getElementById("statusFilter"),
@@ -316,6 +355,31 @@ function clone(value) {
 
 function textValue(value) {
   return String(value ?? "").trim();
+}
+
+function normalizeUsername(value) {
+  return textValue(value).toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 32);
+}
+
+function usernameFromName(name, fallback = "") {
+  const raw = textValue(name).replace(/[·\s。,.，、_-]+/g, "");
+  if (NAME_PINYIN_OVERRIDES[raw]) return NAME_PINYIN_OVERRIDES[raw];
+  const converted = Array.from(raw).map((char) => {
+    if (/^[a-z0-9]$/i.test(char)) return char.toLowerCase();
+    return HAN_PINYIN[char] || "";
+  }).join("");
+  return normalizeUsername(converted) || normalizeUsername(fallback);
+}
+
+function uniqueUsernameForName(name, currentId = "") {
+  const base = usernameFromName(name) || "user";
+  let candidate = base;
+  let suffix = 2;
+  while (state.teamMembers.some((member) => member.id !== currentId && normalizeUsername(member.username) === candidate)) {
+    candidate = `${base}${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
 }
 
 function sortZh(values) {
@@ -541,11 +605,11 @@ function normalizeTeamMembers(members) {
   return (Array.isArray(members) ? members : []).map((member) => {
     const fallback = TEAM_MEMBERS.find((item) => item.id === member.id || item.name === member.name) || {};
     const index = (Array.isArray(members) ? members : []).indexOf(member);
-    const fallbackUsername = index === 0 || member.role === "超级管理员" ? "admin" : String(member.id || fallback.id || `user${index + 1}`).replace(/^user-/, "");
+    const fallbackUsername = usernameFromName(member.name || fallback.name, String(member.id || fallback.id || `user${index + 1}`).replace(/^user-/, ""));
     return {
       ...fallback,
       ...member,
-      username: String(member.username || fallback.username || fallbackUsername).trim(),
+      username: fallbackUsername || String(member.username || fallback.username || "").trim(),
       wecomUserId: member.wecomUserId ?? fallback.wecomUserId ?? "",
       passwordReady: Boolean(member.passwordReady),
       passwordResetRequired: Boolean(member.passwordResetRequired),
@@ -639,7 +703,7 @@ function applyStateSnapshot(snapshot) {
   state.workflowConfig = Array.isArray(snapshot.workflowConfig) && snapshot.workflowConfig.length ? normalizeWorkflowNodes(snapshot.workflowConfig) : normalizeWorkflowNodes(WORKFLOW_CONFIG);
   state.businessLines = normalizeBusinessLines(snapshot.businessLines, state.workflowConfig);
   state.selectedWorkflowLineId = state.businessLines.some((line) => line.id === snapshot.selectedWorkflowLineId) ? snapshot.selectedWorkflowLineId : state.businessLines[0].id;
-  state.projects = Array.isArray(snapshot.projects) && snapshot.projects.length ? snapshot.projects.map(normalizeProject) : seedProjects();
+  state.projects = Array.isArray(snapshot.projects) ? snapshot.projects.map(normalizeProject) : seedProjects();
   state.partners = Array.isArray(snapshot.partners) ? normalizePartners(snapshot.partners, state.projects) : clone(DEFAULT_PARTNERS);
   state.wecomInbox = Array.isArray(snapshot.wecomInbox) ? snapshot.wecomInbox : [];
   state.pushLogs = Array.isArray(snapshot.pushLogs) ? snapshot.pushLogs : [];
@@ -764,6 +828,35 @@ async function logout() {
   setAuthenticatedView(false);
   setLoginMessage("已退出登录。请输入账号密码重新进入。");
   elements.loginUsername.focus();
+}
+
+async function changeCurrentPassword() {
+  const currentPassword = window.prompt("请输入当前密码。");
+  if (currentPassword === null) return;
+  const nextPassword = window.prompt("请输入新密码，至少 6 位。");
+  if (nextPassword === null) return;
+  if (nextPassword.length < 6) {
+    window.alert("新密码至少需要 6 位。");
+    return;
+  }
+  const confirmPassword = window.prompt("请再输入一遍新密码。");
+  if (confirmPassword === null) return;
+  if (nextPassword !== confirmPassword) {
+    window.alert("两次输入的新密码不一致。");
+    return;
+  }
+  try {
+    const response = await fetch("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, nextPassword }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.message || "修改密码失败。");
+    window.alert(result.message || "密码已修改。");
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function requestRemoteState(method = "GET", payload) {
@@ -2213,9 +2306,8 @@ function reminderTabItems() {
 }
 
 function isDemoSuppressedReminder(reminder) {
-  const id = String(reminder?.id || "");
   const source = String(reminder?.source || "");
-  return id.startsWith("reminder-demo-") || source === "演示数据";
+  return source === "演示数据";
 }
 
 function confirmationStatusText(reminder) {
@@ -2255,10 +2347,7 @@ function renderRemindersPanel() {
             <div class="mini-text">公共提醒不绑定具体订单，适合会议、送货、跨项目协同等事项；到点后同样通过企业微信推送。</div>
           </div>
           <div class="toolbar-actions">
-            <label class="switch-line">
-              <input type="checkbox" data-confirmable-push-enabled ${state.confirmablePushEnabled ? "checked" : ""} />
-              <span>可确认推送</span>
-            </label>
+            <span class="chip chip-status">到点提醒默认带确认链接</span>
             <span class="chip chip-status">未完成公共提醒 ${upcomingPublic} 条</span>
           </div>
         </div>
@@ -2279,7 +2368,7 @@ function renderRemindersPanel() {
           </label>
           <label class="mini-field compact-checkbox">
             <span>确认</span>
-            <label><input type="checkbox" name="confirmable" checked /> 推送后需要对方确认完成</label>
+            <label><input type="checkbox" name="confirmable" checked disabled /> 推送后需要对方确认完成</label>
           </label>
           <button type="submit" class="button button-primary">新增公共提醒</button>
         </form>
@@ -2370,7 +2459,7 @@ function renderPushLogsPanel() {
         <div class="table-toolbar">
           <div>
             <h3>企业微信信息推送记录</h3>
-            <div class="mini-text">记录每一次企业微信消息，包含命令反馈、到点提醒和确认回执；命令反馈成功只代表“命令已记录”，不等于到点提醒已经发送。</div>
+            <div class="mini-text">只记录真正对工作人员发出的到点提醒、公共提醒和后台主动推送；命令反馈和确认回执不进入这里。</div>
           </div>
           <div class="toolbar-actions">
             <span class="chip chip-status">全部保留 ${pushLogs.length} 条 · 约 ${estimatedSizeKb} KB</span>
@@ -2974,12 +3063,17 @@ function openAdminModal(mode, payload) {
     const member = state.teamMembers.find((item) => item.id === state.adminEditingId);
     const roles = roleOptions();
     const departments = departmentOptions();
+    const username = member ? uniqueUsernameForName(member.name, member.id) : "";
     elements.adminModalTitle.textContent = member ? "编辑人员" : "新增人员";
     elements.adminModalContent.innerHTML = `
       <form id="adminUserForm" class="project-form">
         <div class="modal-form-grid">
           <label class="field"><span>姓名</span><input name="name" type="text" value="${escapeHtml(member?.name || "")}" required /></label>
-          <label class="field"><span>登录用户名</span><input name="username" type="text" value="${escapeHtml(member?.username || "")}" placeholder="例如 zhangying" required /></label>
+          <label class="field">
+            <span>登录用户名</span>
+            <input name="username" type="text" value="${escapeHtml(username)}" placeholder="保存后按姓名自动生成" readonly />
+            <small>系统按姓名全拼小写自动生成；初始密码统一为 ${DEFAULT_INITIAL_PASSWORD}。</small>
+          </label>
           <label class="field"><span>角色</span>
             <select name="role">
               ${roles.map((role) => `<option value="${escapeHtml(role.name)}" ${member?.role === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}
@@ -2997,7 +3091,7 @@ function openAdminModal(mode, payload) {
           </label>
           <div class="field field-full">
             <span>密码状态</span>
-            <small>${member?.passwordReady ? "已设置登录密码；如人员忘记密码，可以点击下方“重置密码”。" : "尚未设置密码；保存人员后点击“重置密码”生成临时密码。"}</small>
+            <small>${member?.passwordReady ? "已设置登录密码；如人员忘记密码，可以点击下方“重置密码”，会恢复为 111111。" : "新增后可直接用默认密码 111111 登录。"}</small>
           </div>
         </div>
         <div class="modal-actions">
@@ -3475,25 +3569,19 @@ async function resetMemberPassword(memberId) {
   if (!hasPermission("管理人员")) return;
   const member = state.teamMembers.find((item) => item.id === memberId);
   if (!member) return;
-  const confirmed = window.confirm(`确定重置「${member.name}」的登录密码吗？重置后会得到一个临时密码。`);
+  const confirmed = window.confirm(`确定重置「${member.name}」的登录密码吗？重置后默认密码为 ${DEFAULT_INITIAL_PASSWORD}。`);
   if (!confirmed) return;
-  const temporaryPassword = window.prompt("请输入临时密码，至少 6 位。留空则使用系统默认临时密码。", "WorkPad@2026");
-  if (temporaryPassword === null) return;
-  if (temporaryPassword.trim() && temporaryPassword.trim().length < 6) {
-    window.alert("临时密码至少需要 6 位。");
-    return;
-  }
   try {
     const response = await fetch("/api/auth/reset-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId, password: temporaryPassword.trim() }),
+      body: JSON.stringify({ memberId }),
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.message || "重置密码失败。");
     member.passwordReady = true;
     member.passwordResetRequired = true;
-    window.alert(`已重置「${member.name}」的密码。\n用户名：${result.username || member.username}\n临时密码：${result.temporaryPassword}\n请只通过可信渠道发给本人。`);
+    window.alert(`已重置「${member.name}」的密码。\n用户名：${result.username || member.username}\n默认密码：${result.temporaryPassword}\n请提醒本人登录后及时修改。`);
     closeAdminModal();
     await hydrateRemoteState();
     render();
@@ -3518,7 +3606,7 @@ async function savePublicReminderFromForm(form) {
     actor: currentUser().name,
     source: "后台公共提醒",
     recordAt: dateTimeString(new Date()),
-    confirmable: formData.get("confirmable") === "on",
+    confirmable: true,
   });
   saveSettings();
   await flushRemoteSync();
@@ -3866,6 +3954,10 @@ function attachEvents() {
     void logout();
   });
 
+  elements.changePasswordButton.addEventListener("click", () => {
+    void changeCurrentPassword();
+  });
+
   elements.viewToggle.addEventListener("click", (event) => {
     const button = event.target.closest("[data-view]");
     if (!button) return;
@@ -4128,6 +4220,15 @@ function attachEvents() {
     }
     if (event.target.closest("[data-admin-close]")) closeAdminModal();
   });
+  elements.adminModalContent.addEventListener("input", (event) => {
+    if (event.target.name !== "name") return;
+    const form = event.target.closest("#adminUserForm");
+    if (!form) return;
+    const usernameInput = form.querySelector("input[name='username']");
+    if (usernameInput) {
+      usernameInput.value = uniqueUsernameForName(event.target.value, state.adminEditingId);
+    }
+  });
   elements.adminModalContent.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (event.target.id === "adminUserForm") {
@@ -4135,7 +4236,7 @@ function attachEvents() {
       const formData = new FormData(event.target);
       const existing = state.teamMembers.find((item) => item.id === state.adminEditingId);
       const nextName = String(formData.get("name") || "").trim();
-      const nextUsername = String(formData.get("username") || "").trim().toLowerCase();
+      const nextUsername = uniqueUsernameForName(nextName, existing?.id || "");
         const nextRole = String(formData.get("role") || "").trim();
         const nextDepartment = String(formData.get("department") || "").trim();
         const nextWecomUserId = String(formData.get("wecomUserId") || "").trim();
