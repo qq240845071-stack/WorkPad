@@ -136,12 +136,38 @@ const WORKFLOW_CONFIG = [
   { id: "node-tail-print", name: "尾印单", ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 },
 ];
 
+const PROCESS_FIELD_TYPES = [
+  ["text", "文本框"],
+  ["textarea", "多行文本"],
+  ["select", "下拉选择"],
+  ["checkbox", "勾选项"],
+];
+
+const DEFAULT_PROCESS_CARD_FIELDS = [
+  { id: "field-format", label: "成品规格", type: "text", options: "", required: true, placeholder: "例如 170x240mm / 16开" },
+  { id: "field-binding", label: "装订方式", type: "select", options: "胶装\n锁线胶装\n精装\n骑马钉", required: true, placeholder: "" },
+  { id: "field-paper", label: "纸张材料", type: "textarea", options: "", required: false, placeholder: "正文纸、封面纸、克重、特殊材料" },
+];
+
+const DEFAULT_LINE_RISK_CONFIG = {
+  enabled: true,
+  reviewer: "",
+  focus: "排版、内容、进度、合同、质检等环节的潜在风险。",
+  qualityStandard: "结合工艺卡、节点进度、订单备注和质检标准判断是否需要人工复核。",
+};
+
 const DEFAULT_BUSINESS_LINES = [
   {
     id: DEFAULT_BUSINESS_LINE_ID,
     name: "出版类业务线",
     workflowName: "出版标准流程",
     description: "出稿、排版校稿、样书、成品、合同、送货和尾印单。",
+    processCardFields: DEFAULT_PROCESS_CARD_FIELDS,
+    riskConfig: {
+      ...DEFAULT_LINE_RISK_CONFIG,
+      focus: "重点关注作者回稿、排版校稿、样书工艺、合同回签、送货回执和尾印单闭环。",
+      qualityStandard: "质检时同时核对工艺卡、样书确认记录、合同状态和成品质量要求。",
+    },
     nodes: WORKFLOW_CONFIG,
   },
   {
@@ -149,6 +175,16 @@ const DEFAULT_BUSINESS_LINES = [
     name: "设计类业务线",
     workflowName: "设计交付流程",
     description: "适合封面、版式、物料和视觉设计项目。",
+    processCardFields: [
+      { id: "field-design-size", label: "设计尺寸", type: "text", options: "", required: true, placeholder: "例如封面展开尺寸、内文版心" },
+      { id: "field-deliverables", label: "交付文件", type: "select", options: "源文件\nPDF\n图片\n印刷文件", required: true, placeholder: "" },
+      { id: "field-style", label: "风格要求", type: "textarea", options: "", required: false, placeholder: "风格关键词、参考案例、禁用元素" },
+    ],
+    riskConfig: {
+      ...DEFAULT_LINE_RISK_CONFIG,
+      focus: "重点关注需求是否明确、尺寸是否正确、素材授权、文件版本和交付格式。",
+      qualityStandard: "质检时核对尺寸、分辨率、出血、字体版权、图片授权和最终交付文件完整性。",
+    },
     nodes: [
       { id: "design-brief", name: "需求沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
       { id: "design-style", name: "风格确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
@@ -163,6 +199,16 @@ const DEFAULT_BUSINESS_LINES = [
     name: "生产类业务线",
     workflowName: "生产执行流程",
     description: "适合印制、装订、质检、包装和发货。",
+    processCardFields: [
+      { id: "field-product-size", label: "成品规格", type: "text", options: "", required: true, placeholder: "成品尺寸、页数、数量" },
+      { id: "field-production-binding", label: "装订方式", type: "select", options: "胶装\n锁线胶装\n骑马钉\n精装\n裸脊", required: true, placeholder: "" },
+      { id: "field-qc-focus", label: "质检重点", type: "textarea", options: "", required: true, placeholder: "白边、色差、缺胶、裁切、包装等" },
+    ],
+    riskConfig: {
+      ...DEFAULT_LINE_RISK_CONFIG,
+      focus: "重点关注材料准备、印前检查、生产周期、装订质量、质检返工和发货交接。",
+      qualityStandard: "质检时核对尺寸、白边、比例、色差、胶装缺胶、包装数量和送货清单。",
+    },
     nodes: [
       { id: "production-order", name: "工单确认", ownerRole: "项目主管", reminderRole: "协同支持", cycle: 1 },
       { id: "production-material", name: "材料准备", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
@@ -256,6 +302,8 @@ const state = {
   aiRiskPending: false,
   aiRiskResult: "",
   aiRiskError: "",
+  projectAiRiskPending: "",
+  projectAiRiskError: "",
   aiVisionPending: false,
   aiVisionResult: "",
   aiVisionError: "",
@@ -499,12 +547,50 @@ function normalizeWorkflowNodes(nodes) {
   return normalized.length ? normalized : WORKFLOW_CONFIG.map(normalizeWorkflowNode);
 }
 
+function normalizeProcessCardField(field, index = 0) {
+  const source = field || {};
+  const fallback = DEFAULT_PROCESS_CARD_FIELDS[index] || {};
+  const label = textValue(source.label || fallback.label || `工艺字段 ${index + 1}`);
+  const fieldType = PROCESS_FIELD_TYPES.some(([type]) => type === source.type) ? source.type : fallback.type || "text";
+  const hasRequiredValue = Object.prototype.hasOwnProperty.call(source, "required");
+  return {
+    id: textValue(source.id || fallback.id || recordId("process-field", `${label}-${index}`)),
+    label,
+    type: fieldType,
+    options: textValue(Array.isArray(source.options) ? source.options.join("\n") : source.options || fallback.options || ""),
+    required: hasRequiredValue ? source.required === true || source.required === "true" || source.required === "是" : Boolean(fallback.required),
+    placeholder: textValue(source.placeholder || fallback.placeholder || ""),
+  };
+}
+
+function normalizeProcessCardFields(fields, fallbackFields = DEFAULT_PROCESS_CARD_FIELDS) {
+  const source = Array.isArray(fields) && fields.length ? fields : fallbackFields;
+  const byId = new Map();
+  source.map(normalizeProcessCardField).forEach((field) => {
+    if (field.label) byId.set(field.id, field);
+  });
+  return Array.from(byId.values());
+}
+
+function normalizeRiskConfig(config = {}, fallback = {}) {
+  const source = config || {};
+  const base = { ...DEFAULT_LINE_RISK_CONFIG, ...(fallback || {}) };
+  return {
+    enabled: source.enabled !== undefined ? source.enabled !== false && source.enabled !== "false" : base.enabled !== false,
+    reviewer: textValue(source.reviewer || base.reviewer || ""),
+    focus: textValue(source.focus || base.focus || DEFAULT_LINE_RISK_CONFIG.focus),
+    qualityStandard: textValue(source.qualityStandard || base.qualityStandard || DEFAULT_LINE_RISK_CONFIG.qualityStandard),
+  };
+}
+
 function defaultBusinessLines() {
   return DEFAULT_BUSINESS_LINES.map((line, index) => ({
     id: textValue(line.id || recordId("line", `${line.name}-${index}`)),
     name: textValue(line.name),
     workflowName: textValue(line.workflowName || `${line.name}流程`),
     description: textValue(line.description || "可在后台维护该业务线对应的流程节点。"),
+    processCardFields: normalizeProcessCardFields(line.processCardFields),
+    riskConfig: normalizeRiskConfig(line.riskConfig),
     nodes: normalizeWorkflowNodes(line.nodes),
   }));
 }
@@ -518,6 +604,8 @@ function normalizeBusinessLine(line, index = 0) {
     name,
     workflowName: textValue(source.workflowName || fallback.workflowName || `${name}流程`),
     description: textValue(source.description || fallback.description || "可在后台维护该业务线对应的流程节点。"),
+    processCardFields: normalizeProcessCardFields(source.processCardFields, fallback.processCardFields || DEFAULT_PROCESS_CARD_FIELDS),
+    riskConfig: normalizeRiskConfig(source.riskConfig, fallback.riskConfig),
     nodes: normalizeWorkflowNodes(source.nodes || fallback.nodes),
   };
 }
@@ -549,6 +637,21 @@ function businessLineOptions() {
 
 function businessLineById(id) {
   return businessLineOptions().find((line) => line.id === id) || businessLineOptions()[0];
+}
+
+function processFieldOptions(field) {
+  return textValue(field.options)
+    .split(/[\n,，、]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function processCardFieldsForProject(project = {}) {
+  return businessLineById(businessLineIdForProject(project))?.processCardFields || DEFAULT_PROCESS_CARD_FIELDS;
+}
+
+function riskConfigForProject(project = {}) {
+  return businessLineById(businessLineIdForProject(project))?.riskConfig || DEFAULT_LINE_RISK_CONFIG;
 }
 
 function businessLineIdForProject(project = {}) {
@@ -1479,6 +1582,11 @@ function createSeedProject(row) {
     summary,
     nextAction,
     riskNote,
+    processCardValues: {},
+    aiRiskReport: "",
+    aiRiskAssessedAt: "",
+    aiRiskAssessedBy: "",
+    aiRiskReviewer: "",
     reminderPerson: "",
     reminderDate: "",
     reminders: [],
@@ -1549,6 +1657,11 @@ function normalizeProject(project) {
     summary: project.summary || `${project.title || "项目"} 的流程记录`,
     nextAction,
     riskNote: project.riskNote || "暂无特别风险说明。",
+    processCardValues: project.processCardValues && typeof project.processCardValues === "object" ? project.processCardValues : {},
+    aiRiskReport: textValue(project.aiRiskReport || ""),
+    aiRiskAssessedAt: textValue(project.aiRiskAssessedAt || ""),
+    aiRiskAssessedBy: textValue(project.aiRiskAssessedBy || ""),
+    aiRiskReviewer: textValue(project.aiRiskReviewer || ""),
     reminders,
     reminderPerson,
     reminderDate: dateTimeString(reminderDate),
@@ -2032,6 +2145,37 @@ async function generateAiRiskAssessment() {
     state.aiRiskError = error instanceof Error ? error.message : String(error);
   } finally {
     state.aiRiskPending = false;
+    render();
+  }
+}
+
+async function generateProjectAiRiskAssessment(project) {
+  if (!project || state.projectAiRiskPending) return;
+  state.projectAiRiskPending = project.id;
+  state.projectAiRiskError = "";
+  render();
+  try {
+    const response = await fetch("/api/ai/risk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId: project.id }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || result.message || "AI 风险预测失败");
+    const now = new Date();
+    const report = result.reply || "AI 没有返回风险预测内容。";
+    const riskConfig = riskConfigForProject(project);
+    project.aiRiskReport = report;
+    project.aiRiskAssessedAt = dateTimeString(now);
+    project.aiRiskAssessedBy = currentUser().name || "后台用户";
+    project.aiRiskReviewer = riskConfig.reviewer || "";
+    recordProjectOperation(project, project.aiRiskAssessedBy, "AI 风险预测", "生成订单风险预测报告。", now);
+    saveProjects();
+    await flushRemoteSync();
+  } catch (error) {
+    state.projectAiRiskError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.projectAiRiskPending = "";
     render();
   }
 }
@@ -2530,7 +2674,7 @@ function renderAdminContent() {
     permissions: ["权限分配", "当前可以在这里调整角色权限矩阵。"],
     partners: ["合作方管理", `当前已整理 ${getPartners().length} 个合作方，项目录入时已改成通过选择进入。`],
     businessLines: ["业务线管理", `当前共 ${businessLineOptions().length} 条业务线，可分别维护流程名称和说明。`],
-    workflow: ["流程节点配置", "可以按业务线增删流程节点、定义节点名称、负责人角色、提醒角色和标准周期。"],
+    workflow: ["流程节点配置", "可以按业务线维护流程节点、产品工艺卡、风险预测配置和审核负责人。"],
     reminders: ["提醒中心", `当前共有 ${activePublicReminders().length} 条未完成公共提醒，订单提醒和公共提醒都可在这里看确认状态。`],
     pushLogs: ["信息推送记录", `当前共 ${state.pushLogs.length} 条推送记录，包含成功、失败和失败原因。`],
   };
@@ -2819,7 +2963,7 @@ function renderAdminContent() {
           <div class="table-toolbar">
             <div>
               <h3>按业务线配置节点</h3>
-              <div class="mini-text">先选择业务线，再维护该业务线自己的流程名称、节点名称、角色和周期。</div>
+              <div class="mini-text">先选择业务线，再维护该业务线自己的流程名称、节点、产品工艺卡和风险预测规则。</div>
             </div>
             <button type="button" class="button button-primary" data-admin-action="add-workflow-node" ${canManageWorkflow ? "" : "disabled"}>新增节点</button>
           </div>
@@ -2838,6 +2982,60 @@ function renderAdminContent() {
               <span>业务线说明</span>
               <input value="${escapeHtml(workflowLine.description || "")}" data-workflow-line-field="description" ${canManageWorkflow ? "" : "disabled"} />
             </label>
+          </div>
+        </section>
+        <section class="data-panel">
+          <div class="table-toolbar">
+            <div>
+              <h3>产品风险预测配置</h3>
+              <div class="mini-text">每条业务线可以指定风险关注点、质检标准和后续审核负责人。</div>
+            </div>
+            <label class="switch-line">
+              <input type="checkbox" data-risk-config-field="enabled" ${workflowLine.riskConfig.enabled ? "checked" : ""} ${canManageWorkflow ? "" : "disabled"} />
+              启用 AI 风险预测
+            </label>
+          </div>
+          <div class="risk-config-grid">
+            <label class="mini-field">
+              <span>审核负责人</span>
+              <select data-risk-config-field="reviewer" ${canManageWorkflow ? "" : "disabled"}>
+                <option value="">暂不指定</option>
+                ${state.teamMembers.map((member) => `<option value="${escapeHtml(member.name)}" ${workflowLine.riskConfig.reviewer === member.name ? "selected" : ""}>${escapeHtml(member.name)} · ${escapeHtml(member.department)}</option>`).join("")}
+              </select>
+            </label>
+            <label class="mini-field workflow-description-field">
+              <span>风险关注点</span>
+              <textarea data-risk-config-field="focus" rows="3" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(workflowLine.riskConfig.focus)}</textarea>
+            </label>
+            <label class="mini-field workflow-description-field field-full">
+              <span>质检标准</span>
+              <textarea data-risk-config-field="qualityStandard" rows="3" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(workflowLine.riskConfig.qualityStandard)}</textarea>
+            </label>
+          </div>
+        </section>
+        <section class="data-panel">
+          <div class="table-toolbar">
+            <div>
+              <h3>业务线工艺卡配置</h3>
+              <div class="mini-text">这里定义订单详情里的“产品工艺卡”字段。支持文本、多行文本、下拉选项和勾选项。</div>
+            </div>
+            <button type="button" class="button button-primary" data-admin-action="add-process-card-field" ${canManageWorkflow ? "" : "disabled"}>新增工艺字段</button>
+          </div>
+          <div class="table-wrapper process-config-wrapper">
+            <table>
+              <thead><tr><th>字段名</th><th>类型</th><th>下拉选项</th><th>占位提示</th><th>必填</th><th>操作</th></tr></thead>
+              <tbody>
+                ${workflowLine.processCardFields.map((field) => `
+                  <tr>
+                    <td><input type="text" value="${escapeHtml(field.label)}" data-process-field-id="${escapeHtml(field.id)}" data-process-field="label" ${canManageWorkflow ? "" : "disabled"} /></td>
+                    <td><select data-process-field-id="${escapeHtml(field.id)}" data-process-field="type" ${canManageWorkflow ? "" : "disabled"}>${PROCESS_FIELD_TYPES.map(([type, label]) => `<option value="${escapeHtml(type)}" ${field.type === type ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select></td>
+                    <td><textarea rows="3" placeholder="一行一个选项" data-process-field-id="${escapeHtml(field.id)}" data-process-field="options" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(field.options || "")}</textarea></td>
+                    <td><input type="text" value="${escapeHtml(field.placeholder || "")}" data-process-field-id="${escapeHtml(field.id)}" data-process-field="placeholder" ${canManageWorkflow ? "" : "disabled"} /></td>
+                    <td><input type="checkbox" data-process-field-id="${escapeHtml(field.id)}" data-process-field="required" ${field.required ? "checked" : ""} ${canManageWorkflow ? "" : "disabled"} /></td>
+                    <td><button type="button" class="table-action table-action-danger" data-admin-action="delete-process-card-field" data-process-field-id="${escapeHtml(field.id)}" ${canManageWorkflow ? "" : "disabled"}>删除</button></td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
@@ -2863,6 +3061,68 @@ function renderAdminContent() {
         </tbody>
       </table>
     </div>`;
+}
+
+function renderProcessCardControl(field, value, disabled) {
+  const attr = `data-process-value-field="${escapeHtml(field.id)}" ${field.required ? "required" : ""} ${disabled ? "disabled" : ""}`;
+  const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : "";
+  if (field.type === "textarea") {
+    return `<textarea rows="4" ${attr}${placeholder}>${escapeHtml(value || "")}</textarea>`;
+  }
+  if (field.type === "select") {
+    const options = processFieldOptions(field);
+    return `
+      <select ${attr}>
+        <option value="">请选择</option>
+        ${options.map((option) => `<option value="${escapeHtml(option)}" ${value === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}
+      </select>`;
+  }
+  if (field.type === "checkbox") {
+    return `<label class="process-checkbox"><input type="checkbox" data-process-value-field="${escapeHtml(field.id)}" ${value === "是" || value === true ? "checked" : ""} ${disabled ? "disabled" : ""} /> 已确认</label>`;
+  }
+  return `<input type="text" value="${escapeHtml(value || "")}" ${attr}${placeholder} />`;
+}
+
+function renderProcessCardHtml(project, canEditProject) {
+  const line = businessLineById(businessLineIdForProject(project));
+  const fields = normalizeProcessCardFields(line.processCardFields);
+  const values = project.processCardValues || {};
+  return `
+    <section class="detail-card">
+      <div class="table-toolbar">
+        <div>
+          <h3>产品工艺卡</h3>
+          <p class="mini-text">${escapeHtml(line.name)} · 按后台业务线配置生成，字段可以在后台增删。</p>
+        </div>
+        <button type="button" class="button button-secondary" data-drawer-action="save-process-card" ${canEditProject ? "" : "disabled"}>保存工艺卡</button>
+      </div>
+      <div class="process-card-grid">
+        ${fields.map((field) => `
+          <label class="process-card-field ${field.type === "textarea" ? "field-full" : ""}">
+            <span>${escapeHtml(field.label)}${field.required ? " *" : ""}</span>
+            ${renderProcessCardControl(field, values[field.id], !canEditProject)}
+          </label>`).join("")}
+      </div>
+    </section>`;
+}
+
+function renderProjectAiRiskHtml(project, canEditProject) {
+  const riskConfig = riskConfigForProject(project);
+  const reviewer = riskConfig.reviewer || project.aiRiskReviewer || "暂未指定";
+  const pending = state.projectAiRiskPending === project.id;
+  return `
+    <section class="detail-card">
+      <div class="table-toolbar">
+        <div>
+          <h3>AI 风险预测</h3>
+          <p class="mini-text">结合订单信息、节点进度、工艺卡和业务线风险配置生成。审核负责人：${escapeHtml(reviewer)}</p>
+        </div>
+        <button type="button" class="button button-primary" data-drawer-action="project-ai-risk" ${canEditProject && riskConfig.enabled ? "" : "disabled"}>${pending ? "预测中" : "生成风险预测"}</button>
+      </div>
+      ${state.projectAiRiskError && state.selectedProjectId === project.id ? `<div class="ai-error">${escapeHtml(state.projectAiRiskError)}</div>` : ""}
+      <div class="ai-result">${project.aiRiskReport ? formatMessageText(project.aiRiskReport) : "还没有生成风险报告。点击按钮后，AI 会输出风险等级、主要风险点、质检重点和下一步动作。"}</div>
+      ${project.aiRiskAssessedAt ? `<p class="mini-text">生成时间：${escapeHtml(project.aiRiskAssessedAt)} · 生成人：${escapeHtml(project.aiRiskAssessedBy || "-")}</p>` : ""}
+    </section>`;
 }
 
 function renderNodeTimelineHtml(project) {
@@ -2992,7 +3252,9 @@ function renderDrawer() {
         ${reminderListHtml(project, { emptyText: "暂无提醒任务" })}
         ${reminderRecordHtml(project)}
       </section>
+      ${renderProcessCardHtml(project, canEditProject)}
       ${renderNodeTimelineHtml(project)}
+      ${renderProjectAiRiskHtml(project, canEditProject)}
       <section class="detail-card">
         <h3>风险与动作</h3>
         <div class="detail-actions">
@@ -3426,6 +3688,32 @@ function completeProjectFromDrawer(project, operator, operationTime = new Date()
   recordProjectOperation(project, operator, "标记完成", appendManualNoteToDetail(`项目在「${previousNode}」节点标记完成。`, manualNote), operationTime);
 }
 
+function saveProcessCardFromDrawer(project) {
+  const controls = Array.from(elements.drawerContent.querySelectorAll("[data-process-value-field]"));
+  const fields = processCardFieldsForProject(project);
+  const values = { ...(project.processCardValues || {}) };
+  const labelById = new Map(fields.map((field) => [field.id, field.label]));
+  for (const control of controls) {
+    const fieldId = control.dataset.processValueField;
+    const field = fields.find((item) => item.id === fieldId);
+    if (!field) continue;
+    const value = control.type === "checkbox" ? (control.checked ? "是" : "否") : String(control.value || "").trim();
+    if (field.required && (!value || (field.type === "checkbox" && value !== "是"))) {
+      window.alert(`请填写工艺卡必填项：${field.label}`);
+      control.focus();
+      return false;
+    }
+    values[fieldId] = value;
+  }
+  project.processCardValues = values;
+  const filledLabels = Object.entries(values)
+    .filter(([, value]) => textValue(value))
+    .map(([fieldId]) => labelById.get(fieldId))
+    .filter(Boolean);
+  recordProjectOperation(project, currentUser().name || "后台用户", "保存工艺卡", filledLabels.length ? `更新工艺字段：${filledLabels.join("、")}。` : "保存产品工艺卡。");
+  return true;
+}
+
 async function handleDrawerAction(action) {
   const current = state.projects.find((item) => item.id === state.selectedProjectId);
   if (!current) return;
@@ -3445,6 +3733,17 @@ async function handleDrawerAction(action) {
   if (!hasPermission("编辑项目状态")) return;
   if (action === "edit") {
     openModal(current);
+    return;
+  }
+  if (action === "project-ai-risk") {
+    await generateProjectAiRiskAssessment(current);
+    return;
+  }
+  if (action === "save-process-card") {
+    if (!saveProcessCardFromDrawer(current)) return;
+    saveProjects();
+    await flushRemoteSync();
+    render();
     return;
   }
   const operator = currentUser().name || "后台用户";
@@ -3896,6 +4195,70 @@ async function moveWorkflowNode(nodeId, direction) {
   render();
 }
 
+function updateProcessCardFieldFromInput(target) {
+  const line = businessLineById(state.selectedWorkflowLineId);
+  line.processCardFields = normalizeProcessCardFields(line.processCardFields);
+  const item = line.processCardFields.find((field) => field.id === target.dataset.processFieldId);
+  if (!item) return;
+  const fieldName = target.dataset.processField;
+  if (fieldName === "label") {
+    const nextLabel = String(target.value || "").trim();
+    if (!nextLabel) {
+      target.value = item.label;
+      return;
+    }
+    item.label = nextLabel;
+    return;
+  }
+  if (fieldName === "required") {
+    item.required = target.checked;
+    return;
+  }
+  if (fieldName === "type") {
+    item.type = PROCESS_FIELD_TYPES.some(([type]) => type === target.value) ? target.value : "text";
+    return;
+  }
+  item[fieldName] = String(target.value || "").trim();
+}
+
+async function addProcessCardField() {
+  if (!hasPermission("管理流程节点")) return;
+  const line = businessLineById(state.selectedWorkflowLineId);
+  line.processCardFields = normalizeProcessCardFields(line.processCardFields);
+  const nextIndex = line.processCardFields.length + 1;
+  line.processCardFields.push({
+    id: recordId("process-field", `${line.id}-field-${nextIndex}-${Date.now()}`),
+    label: `新工艺字段 ${nextIndex}`,
+    type: "text",
+    options: "",
+    required: false,
+    placeholder: "",
+  });
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function deleteProcessCardField(fieldId) {
+  if (!hasPermission("管理流程节点")) return;
+  const line = businessLineById(state.selectedWorkflowLineId);
+  const field = line.processCardFields.find((item) => item.id === fieldId);
+  if (!field) return;
+  const confirmed = window.confirm(`确定删除工艺字段「${field.label}」吗？相关订单里这个字段已填写的内容也会一起移除。`);
+  if (!confirmed) return;
+  line.processCardFields = line.processCardFields.filter((item) => item.id !== fieldId);
+  state.projects = state.projects.map((project) => {
+    if (businessLineIdForProject(project) !== line.id) return project;
+    const values = { ...(project.processCardValues || {}) };
+    delete values[fieldId];
+    return { ...project, processCardValues: values };
+  });
+  saveProjects();
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
 function renderViewState() {
   const adminAvailable = canAccessAdmin();
   if (!adminAvailable && state.currentView === "admin") {
@@ -4089,6 +4452,8 @@ function attachEvents() {
       if (button.dataset.adminAction === "delete-workflow-node") void deleteWorkflowNode(button.dataset.workflowNodeId);
       if (button.dataset.adminAction === "move-workflow-node-up") void moveWorkflowNode(button.dataset.workflowNodeId, "up");
       if (button.dataset.adminAction === "move-workflow-node-down") void moveWorkflowNode(button.dataset.workflowNodeId, "down");
+      if (button.dataset.adminAction === "add-process-card-field") void addProcessCardField();
+      if (button.dataset.adminAction === "delete-process-card-field") void deleteProcessCardField(button.dataset.processFieldId);
       if (button.dataset.adminAction === "complete-reminder") void completeReminderFromAdmin(button.dataset.reminderScope, button.dataset.reminderId, button.dataset.projectId);
       if (button.dataset.adminAction === "delete-push-log") void deletePushLog(button.dataset.pushLogId);
       if (button.dataset.adminAction === "clear-push-logs") void clearPushLogs();
@@ -4127,6 +4492,23 @@ function attachEvents() {
       const line = businessLineById(state.selectedWorkflowLineId);
       line[target.dataset.workflowLineField] = String(target.value || "").trim();
       saveSettings();
+      return;
+    }
+    if (target.dataset.riskConfigField) {
+      if (!hasPermission("管理流程节点")) return;
+      const line = businessLineById(state.selectedWorkflowLineId);
+      line.riskConfig = normalizeRiskConfig(line.riskConfig);
+      const field = target.dataset.riskConfigField;
+      line.riskConfig[field] = field === "enabled" ? target.checked : String(target.value || "").trim();
+      saveSettings();
+      void flushRemoteSync();
+      return;
+    }
+    if (target.dataset.processFieldId && target.dataset.processField) {
+      if (!hasPermission("管理流程节点")) return;
+      updateProcessCardFieldFromInput(target);
+      saveSettings();
+      void flushRemoteSync();
       return;
     }
     if (target.dataset.workflowNodeId) {
@@ -4371,6 +4753,8 @@ function attachEvents() {
             name: nextName,
             workflowName: nextWorkflowName,
             description: nextDescription || "可在后台维护该业务线对应的流程节点。",
+            processCardFields: normalizeProcessCardFields(DEFAULT_PROCESS_CARD_FIELDS),
+            riskConfig: normalizeRiskConfig({ ...DEFAULT_LINE_RISK_CONFIG }),
             nodes: [
               { id: recordId("node", `${nextName}-节点-1-${Date.now()}`), name: "开始处理", ownerRole: "编辑", reminderRole: "项目主管", cycle: 3 },
               { id: recordId("node", `${nextName}-节点-2-${Date.now()}`), name: "交付确认", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },

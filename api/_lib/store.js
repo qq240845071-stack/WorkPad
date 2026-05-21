@@ -144,6 +144,43 @@ function normalizeWorkflowNodes(nodes) {
   return normalized.length ? normalized : DEFAULT_BUSINESS_LINES[0].nodes.map(normalizeWorkflowNode);
 }
 
+const PROCESS_FIELD_TYPES = new Set(["text", "textarea", "select", "checkbox"]);
+
+function normalizeProcessCardField(field, index = 0, fallbackFields = []) {
+  const source = field || {};
+  const fallback = fallbackFields[index] || {};
+  const label = textValue(source.label || fallback.label || `工艺字段 ${index + 1}`);
+  const hasRequiredValue = Object.prototype.hasOwnProperty.call(source, "required");
+  return {
+    id: textValue(source.id || fallback.id || recordId("process-field", `${label}-${index}`)),
+    label,
+    type: PROCESS_FIELD_TYPES.has(source.type) ? source.type : fallback.type || "text",
+    options: textValue(Array.isArray(source.options) ? source.options.join("\n") : source.options || fallback.options || ""),
+    required: hasRequiredValue ? source.required === true || source.required === "true" || source.required === "是" : Boolean(fallback.required),
+    placeholder: textValue(source.placeholder || fallback.placeholder || ""),
+  };
+}
+
+function normalizeProcessCardFields(fields, fallbackFields = DEFAULT_BUSINESS_LINES[0].processCardFields || []) {
+  const source = Array.isArray(fields) && fields.length ? fields : fallbackFields;
+  const byId = new Map();
+  source.forEach((field, index) => {
+    const normalized = normalizeProcessCardField(field, index, fallbackFields);
+    if (normalized.label) byId.set(normalized.id, normalized);
+  });
+  return Array.from(byId.values());
+}
+
+function normalizeRiskConfig(config = {}, fallback = {}) {
+  const source = config || {};
+  return {
+    enabled: source.enabled !== undefined ? source.enabled !== false && source.enabled !== "false" : fallback.enabled !== false,
+    reviewer: textValue(source.reviewer || fallback.reviewer || ""),
+    focus: textValue(source.focus || fallback.focus || "排版、内容、进度、合同、质检等环节的潜在风险。"),
+    qualityStandard: textValue(source.qualityStandard || fallback.qualityStandard || "结合工艺卡、节点进度、订单备注和质检标准判断是否需要人工复核。"),
+  };
+}
+
 function normalizeBusinessLine(line, index = 0) {
   const source = line || {};
   const fallback = DEFAULT_BUSINESS_LINES.find((item) => item.id === source.id || item.name === source.name) || {};
@@ -153,6 +190,8 @@ function normalizeBusinessLine(line, index = 0) {
     name,
     workflowName: textValue(source.workflowName || fallback.workflowName || `${name}流程`),
     description: textValue(source.description || fallback.description || "可在后台维护该业务线对应的流程节点。"),
+    processCardFields: normalizeProcessCardFields(source.processCardFields, fallback.processCardFields || DEFAULT_BUSINESS_LINES[0].processCardFields || []),
+    riskConfig: normalizeRiskConfig(source.riskConfig, fallback.riskConfig),
     nodes: normalizeWorkflowNodes(source.nodes || fallback.nodes),
   };
 }
@@ -183,6 +222,11 @@ function normalizeProjects(projects) {
       ...project,
       businessLineId: project.businessLineId || DEFAULT_BUSINESS_LINE_ID,
       businessLineName: project.businessLineName || "出版类业务线",
+      processCardValues: project.processCardValues && typeof project.processCardValues === "object" ? project.processCardValues : {},
+      aiRiskReport: textValue(project.aiRiskReport),
+      aiRiskAssessedAt: textValue(project.aiRiskAssessedAt),
+      aiRiskAssessedBy: textValue(project.aiRiskAssessedBy),
+      aiRiskReviewer: textValue(project.aiRiskReviewer),
       reminderDate: normalizeReminderDate(project.reminderDate, project.planFinish),
       reminders: normalizeProjectReminders(project),
       nodes: Array.isArray(project.nodes)

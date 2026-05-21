@@ -358,6 +358,45 @@ function timeFromToken(token) {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+function chineseNumberToInt(value) {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  if (/^\d+$/.test(text)) return Number(text);
+  const digits = {
+    零: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+  if (text === "十") return 10;
+  if (text.includes("十")) {
+    const [left, right] = text.split("十");
+    const ten = left ? digits[left] || 0 : 1;
+    return ten * 10 + (right ? digits[right] || 0 : 0);
+  }
+  return Array.from(text).reduce((sum, char) => sum * 10 + (digits[char] ?? 0), 0);
+}
+
+function normalizeChineseTimeText(value) {
+  return String(value || "").replace(
+    /(上午|早上|中午|下午|晚上)?\s*([零一二两三四五六七八九十]{1,3})(?:点|:)?([0-9]{1,2}|[零一二两三四五六七八九十]{1,3})?(?:分)?/g,
+    (match, period = "", hourText, minuteText = "") => {
+      if (!period && !/[点:]/.test(match)) return match;
+      const hour = chineseNumberToInt(hourText);
+      const minute = minuteText ? chineseNumberToInt(minuteText) : 0;
+      if (hour <= 0 || hour > 24 || minute < 0 || minute > 59) return match;
+      return `${period}${hour}点${String(minute).padStart(2, "0")}`;
+    },
+  );
+}
+
 function parseReminderSchedule(rawText) {
   const parts = String(rawText || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return { error: "missing-time", note: "" };
@@ -413,7 +452,7 @@ function monthDayDate(month, day) {
 }
 
 function parseLooseDateTime(rawText) {
-  const text = String(rawText || "").trim().replace(/：/g, ":");
+  const text = normalizeChineseTimeText(rawText).trim().replace(/：/g, ":");
   if (!text) return null;
 
   const explicitDateTime = text.match(/(\d{4}-\d{1,2}-\d{1,2})\s*(上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?:[:点](\d{1,2}))?/);
@@ -454,15 +493,61 @@ function parseLooseDateTime(rawText) {
   else if (/中午/.test(text)) impliedPeriod = "中午";
   else if (/明早|早上|上午/.test(text)) impliedPeriod = "上午";
 
-  const timeMatch = text.match(/(上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?:[:点](\d{1,2}))?/);
-  if (!timeMatch) return null;
-  const period = timeMatch[1] || impliedPeriod;
-  const hour = normalizePeriodHour(timeMatch[2], period);
-  const minute = Number(timeMatch[3] || 0);
+  const matches = Array.from(text.matchAll(/(上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?:[:点](\d{1,2}))?/g))
+    .map((match) => ({
+      match,
+      period: match[1] || impliedPeriod,
+      hourText: match[2],
+      minuteText: match[3] || "0",
+      score: (match[1] ? 10 : 0) + (match[3] ? 2 : 0) + match.index / 100000,
+    }))
+    .filter((item) => Number(item.hourText) <= 24);
+  if (!matches.length) return null;
+  const picked = matches.sort((left, right) => right.score - left.score)[0];
+  const period = picked.period;
+  const hour = normalizePeriodHour(picked.hourText, period);
+  const minute = Number(picked.minuteText);
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
   return {
     reminderDate: `${date || dateString(nowDate())} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-    matchedText: timeMatch[0],
+    matchedText: picked.match[0],
+  };
+}
+
+function stripPublicReminderNote(text, memberName) {
+  return normalizeChineseTimeText(text)
+    .replace(new RegExp(memberName, "g"), " ")
+    .replace(/\d{4}-\d{1,2}-\d{1,2}\s*(上午|早上|中午|下午|晚上)?\s*\d{1,2}(?:[:点]\d{1,2})?/g, " ")
+    .replace(/\d{1,2}月\d{1,2}[日号]?\s*(上午|早上|中午|下午|晚上)?\s*\d{1,2}(?:[:点]\d{1,2})?/g, " ")
+    .replace(/(今天|明天|后天|今晚|明早|明晚|今早|今上午|今下午|今晚上|上午|早上|中午|下午|晚上)?\s*\d{1,2}(?:[:点]\d{1,2})?(?:分)?/g, " ")
+    .replace(/建立|创建|新增|一个|一条|公共提醒|提醒|然后|请|帮我|麻烦|给|让|叫/g, " ")
+    .replace(/[，,。；;：:、]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseNaturalPublicReminderCommand(text, state) {
+  const raw = String(text || "").trim();
+  if (!raw || !/(提醒|公共提醒)/.test(raw)) return null;
+  const parsedDate = parseLooseDateTime(raw);
+  if (!parsedDate) return null;
+  const members = (Array.isArray(state.teamMembers) ? state.teamMembers : [])
+    .map((member) => member.name)
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  let memberKeyword = members.find((name) => raw.includes(name)) || "";
+  if (!memberKeyword) {
+    const memberMatch = raw.match(/提醒\s*([\u4e00-\u9fa5]{2,4})/);
+    memberKeyword = memberMatch ? memberMatch[1].replace(/也$/, "") : "";
+  }
+  if (!memberKeyword) return null;
+  const note = stripPublicReminderNote(raw, memberKeyword);
+  if (!note) return null;
+  return {
+    type: "public-remind",
+    memberKeyword,
+    reminderDate: parsedDate.reminderDate,
+    note,
   };
 }
 
@@ -789,6 +874,10 @@ function updateReminderByCommand(state, command, actor) {
 
 async function resolveCommand(content, state, actor, options = {}) {
   const direct = parseCommand(content);
+  const naturalPublicReminder = direct.type === "unknown" || direct.type === "empty" || Boolean(direct.error)
+    ? parseNaturalPublicReminderCommand(content, state)
+    : null;
+  if (naturalPublicReminder) return { command: naturalPublicReminder, source: "rule" };
   const shouldAskAi = options.preferAi || direct.type === "unknown" || direct.type === "empty" || Boolean(direct.error);
   if (!shouldAskAi) return { command: direct, source: "rule" };
   try {

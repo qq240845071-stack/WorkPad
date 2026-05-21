@@ -55,12 +55,31 @@ const WORKFLOW_CONFIG = [
   { id: "node-tail-print", name: "尾印单", ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 },
 ];
 
+const DEFAULT_PROCESS_CARD_FIELDS = [
+  { id: "field-format", label: "成品规格", type: "text", options: "", required: true, placeholder: "例如 170x240mm / 16开" },
+  { id: "field-binding", label: "装订方式", type: "select", options: "胶装\n锁线胶装\n精装\n骑马钉", required: true, placeholder: "" },
+  { id: "field-paper", label: "纸张材料", type: "textarea", options: "", required: false, placeholder: "正文纸、封面纸、克重、特殊材料" },
+];
+
+const DEFAULT_LINE_RISK_CONFIG = {
+  enabled: true,
+  reviewer: "",
+  focus: "排版、内容、进度、合同、质检等环节的潜在风险。",
+  qualityStandard: "结合工艺卡、节点进度、订单备注和质检标准判断是否需要人工复核。",
+};
+
 const DEFAULT_BUSINESS_LINES = [
   {
     id: DEFAULT_BUSINESS_LINE_ID,
     name: "出版类业务线",
     workflowName: "出版标准流程",
     description: "出稿、排版校稿、样书、成品、合同、送货和尾印单。",
+    processCardFields: DEFAULT_PROCESS_CARD_FIELDS,
+    riskConfig: {
+      ...DEFAULT_LINE_RISK_CONFIG,
+      focus: "重点关注作者回稿、排版校稿、样书工艺、合同回签、送货回执和尾印单闭环。",
+      qualityStandard: "质检时同时核对工艺卡、样书确认记录、合同状态和成品质量要求。",
+    },
     nodes: WORKFLOW_CONFIG,
   },
   {
@@ -68,6 +87,16 @@ const DEFAULT_BUSINESS_LINES = [
     name: "设计类业务线",
     workflowName: "设计交付流程",
     description: "适合封面、版式、物料和视觉设计项目。",
+    processCardFields: [
+      { id: "field-design-size", label: "设计尺寸", type: "text", options: "", required: true, placeholder: "例如封面展开尺寸、内文版心" },
+      { id: "field-deliverables", label: "交付文件", type: "select", options: "源文件\nPDF\n图片\n印刷文件", required: true, placeholder: "" },
+      { id: "field-style", label: "风格要求", type: "textarea", options: "", required: false, placeholder: "风格关键词、参考案例、禁用元素" },
+    ],
+    riskConfig: {
+      ...DEFAULT_LINE_RISK_CONFIG,
+      focus: "重点关注需求是否明确、尺寸是否正确、素材授权、文件版本和交付格式。",
+      qualityStandard: "质检时核对尺寸、分辨率、出血、字体版权、图片授权和最终交付文件完整性。",
+    },
     nodes: [
       { id: "design-brief", name: "需求沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
       { id: "design-style", name: "风格确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
@@ -82,6 +111,16 @@ const DEFAULT_BUSINESS_LINES = [
     name: "生产类业务线",
     workflowName: "生产执行流程",
     description: "适合印制、装订、质检、包装和发货。",
+    processCardFields: [
+      { id: "field-product-size", label: "成品规格", type: "text", options: "", required: true, placeholder: "成品尺寸、页数、数量" },
+      { id: "field-production-binding", label: "装订方式", type: "select", options: "胶装\n锁线胶装\n骑马钉\n精装\n裸脊", required: true, placeholder: "" },
+      { id: "field-qc-focus", label: "质检重点", type: "textarea", options: "", required: true, placeholder: "白边、色差、缺胶、裁切、包装等" },
+    ],
+    riskConfig: {
+      ...DEFAULT_LINE_RISK_CONFIG,
+      focus: "重点关注材料准备、印前检查、生产周期、装订质量、质检返工和发货交接。",
+      qualityStandard: "质检时核对尺寸、白边、比例、色差、胶装缺胶、包装数量和送货清单。",
+    },
     nodes: [
       { id: "production-order", name: "工单确认", ownerRole: "项目主管", reminderRole: "协同支持", cycle: 1 },
       { id: "production-material", name: "材料准备", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
@@ -236,6 +275,11 @@ function createSeedProject(row) {
     summary,
     nextAction,
     riskNote,
+    processCardValues: {},
+    aiRiskReport: "",
+    aiRiskAssessedAt: "",
+    aiRiskAssessedBy: "",
+    aiRiskReviewer: "",
     reminderPerson: "",
     reminderDate: "",
     reminders: [],

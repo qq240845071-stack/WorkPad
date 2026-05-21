@@ -595,6 +595,17 @@ body::before {
   align-items: end;
 }
 
+.risk-config-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(280px, 1fr);
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.risk-config-grid .field-full {
+  grid-column: 1 / -1;
+}
+
 .compact-checkbox label {
   min-height: 48px;
   display: flex;
@@ -1183,6 +1194,58 @@ body::before {
   color: var(--ink);
 }
 
+.process-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.process-card-field {
+  display: grid;
+  gap: 8px;
+}
+
+.process-card-field span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.process-card-field input,
+.process-card-field select,
+.process-card-field textarea,
+.mini-field textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid rgba(31, 36, 48, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
+}
+
+.process-card-field textarea,
+.mini-field textarea {
+  resize: vertical;
+}
+
+.process-card-grid .field-full {
+  grid-column: 1 / -1;
+}
+
+.process-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--ink);
+}
+
+.process-checkbox input {
+  width: auto;
+}
+
 .overview-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1569,7 +1632,8 @@ th {
 }
 
 .table-wrapper input,
-.table-wrapper select {
+.table-wrapper select,
+.table-wrapper textarea {
   width: 100%;
   min-width: 130px;
   padding: 10px 12px;
@@ -1578,6 +1642,11 @@ th {
   background: rgba(255, 255, 255, 0.86);
   color: var(--ink);
   font: inherit;
+}
+
+.table-wrapper textarea {
+  min-width: 220px;
+  resize: vertical;
 }
 
 .table-action {
@@ -1768,7 +1837,9 @@ th {
   .settings-form-grid,
 	  .modal-form-grid,
 	  .metric-grid,
-	  .ai-config-grid {
+	  .ai-config-grid,
+  .risk-config-grid,
+  .process-card-grid {
 	    grid-template-columns: 1fr;
 	  }
 
