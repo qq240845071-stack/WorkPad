@@ -2211,7 +2211,7 @@ async function requestProjectRiskReview(project, reviewer, actor) {
   const now = new Date();
   project.aiRiskReviewer = reviewerName;
   project.aiRiskReviewToken = project.aiRiskReviewToken || reviewToken();
-  project.aiRiskReviewUrl = absoluteAppUrl(`/api/risks/review?token=${encodeURIComponent(project.aiRiskReviewToken)}`);
+  project.aiRiskReviewUrl = absoluteAppUrl(`/api/reminders/confirm?riskToken=${encodeURIComponent(project.aiRiskReviewToken)}`);
   project.aiRiskReviewStatus = "待审核";
   project.aiRiskReviewRequestedAt = dateTimeString(now);
   project.aiRiskReviewRequestedBy = actor || currentUser().name || "WorkPad";

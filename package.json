@@ -5,7 +5,7 @@
   "description": "出版项目流程看板与轻量后台原型",
   "scripts": {
     "dev:fullstack": "vercel dev --listen 4173",
-    "check": "node --check app.js && node --check api/_lib/demo-state.js && node --check api/_lib/store.js && node --check api/_lib/auth.js && node --check api/_lib/push-log.js && node --check api/_lib/reminders.js && node --check api/_lib/tencent-asr.js && node --check api/_lib/wecom-service.js && node --check api/_lib/reminder-dispatcher.js && node --check api/state.js && node --check 'api/auth/[action].js' && node --check api/wecom/health.js && node --check api/wecom/send-message.js && node --check api/reminders/confirm.js && node --check api/risks/review.js && node --check api/cron/dispatch-reminders.js && node --check services/wecom-fixed-ip-proxy/server.js",
+    "check": "node --check app.js && node --check api/_lib/demo-state.js && node --check api/_lib/store.js && node --check api/_lib/auth.js && node --check api/_lib/push-log.js && node --check api/_lib/reminders.js && node --check api/_lib/tencent-asr.js && node --check api/_lib/wecom-service.js && node --check api/_lib/reminder-dispatcher.js && node --check api/state.js && node --check 'api/auth/[action].js' && node --check api/wecom/health.js && node --check api/wecom/send-message.js && node --check api/reminders/confirm.js && node --check api/cron/dispatch-reminders.js && node --check services/wecom-fixed-ip-proxy/server.js",
     "deploy:prod": "vercel deploy --prod --yes"
   },
   "dependencies": {

@@ -26,6 +26,8 @@ function page(title, body, tone = "success") {
     .badge { display: inline-flex; padding: 8px 14px; border-radius: 999px; font-size: 14px; color: ${tone === "success" ? "#276749" : "#9b2c2c"}; background: ${tone === "success" ? "#e3f3e8" : "#fff0f0"}; }
     h1 { margin: 18px 0 12px; font-size: 28px; }
     p { margin: 0 0 18px; color: #5f6673; line-height: 1.8; font-size: 16px; white-space: pre-line; }
+    h2 { margin: 22px 0 10px; font-size: 18px; }
+    .report { max-height: 360px; overflow: auto; margin: 0 0 18px; padding: 16px; border-radius: 18px; background: #fbf7ef; border: 1px solid rgba(31,36,48,0.1); color: #26313f; line-height: 1.8; white-space: pre-line; }
     form { display: grid; gap: 16px; margin-top: 20px; }
     label { display: grid; gap: 8px; color: #374151; font-size: 15px; }
     textarea { min-height: 140px; resize: vertical; padding: 14px 16px; border-radius: 16px; border: 1px solid rgba(31,36,48,0.16); font: inherit; line-height: 1.7; }
@@ -144,6 +146,84 @@ function completedPage(result) {
   return page("您已发送完毕", body);
 }
 
+function chinaDateTimeString(value = new Date()) {
+  const date = new Date(value);
+  const china = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  const year = china.getUTCFullYear();
+  const month = String(china.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(china.getUTCDate()).padStart(2, "0");
+  const hours = String(china.getUTCHours()).padStart(2, "0");
+  const minutes = String(china.getUTCMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function findProjectByRiskToken(state, token) {
+  const normalized = String(token || "").trim();
+  if (!normalized) return null;
+  return (Array.isArray(state.projects) ? state.projects : []).find((project) => project.aiRiskReviewToken === normalized) || null;
+}
+
+function riskProjectContextText(project) {
+  return [
+    `项目：${project.title}`,
+    `编号：${project.code}`,
+    `状态：${project.status} / ${project.currentNode}`,
+    `负责人：${project.owner || "未分配"}`,
+    `审核人：${project.aiRiskReviewer || "未指定"}`,
+    `生成时间：${project.aiRiskAssessedAt || "未记录"}`,
+  ].join("\n");
+}
+
+function riskReviewFormPage(token, project, error = "") {
+  const body = `
+    <p>${escapeHtml(riskProjectContextText(project))}</p>
+    <h2>AI 风险预测报告</h2>
+    <div class="report">${escapeHtml(project.aiRiskReport || "暂无风险报告。")}</div>
+    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
+    <form method="POST">
+      <input type="hidden" name="riskToken" value="${escapeHtml(token)}" />
+      <label>
+        <span>审核意见 / 处理建议</span>
+        <textarea name="reviewNote" maxlength="${MAX_NOTE_LENGTH}" required placeholder="请确认 AI 判断是否准确，以及下一步需要谁处理、怎么处理。"></textarea>
+      </label>
+      <label>
+        <span>补充风险（可选）</span>
+        <textarea name="additionalRisks" maxlength="${MAX_NOTE_LENGTH}" placeholder="如果还有 AI 没提到的风险，例如合同、工艺、交期、质检标准等，请写在这里。"></textarea>
+      </label>
+      <p class="hint">提交后，这份审核意见会回写到订单详情，并跟随订单进入后续质检环节。</p>
+      <button type="submit">确认风险审核</button>
+    </form>`;
+  return page("填写风险审核意见", body);
+}
+
+function riskReviewCompletedPage(project) {
+  const body = `
+    <p>${escapeHtml(riskProjectContextText(project))}</p>
+    <h2>已提交的审核意见</h2>
+    <div class="report">审核意见：${escapeHtml(project.aiRiskReviewNote || "未填写")}\n\n补充风险：${escapeHtml(project.aiRiskAdditionalRisks || "无")}\n\n确认时间：${escapeHtml(project.aiRiskReviewedAt || "未记录")}</div>
+    <p class="hint">您已发送完毕，这条风险审核记录已锁定，不能重复修改。</p>`;
+  return page("风险审核已完成", body);
+}
+
+function buildRiskReviewReceipt(project) {
+  return [
+    "【WorkPad 风险审核回执】",
+    "风险预测报告已被审核负责人确认。",
+    riskProjectContextText(project),
+    `审核意见：${project.aiRiskReviewNote || "未填写"}`,
+    `补充风险：${project.aiRiskAdditionalRisks || "无"}`,
+    `确认时间：${project.aiRiskReviewedAt || "刚刚"}`,
+  ].join("\n");
+}
+
+async function notifyRiskRequester(state, project) {
+  const requesterName = String(project.aiRiskReviewRequestedBy || project.aiRiskAssessedBy || "").trim();
+  if (!requesterName || requesterName === project.aiRiskReviewer) return;
+  const member = findMember(state, requesterName);
+  if (!member || !member.wecomUserId) return;
+  await sendAppTextMessage({ toUser: member.wecomUserId, content: buildRiskReviewReceipt(project) });
+}
+
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
@@ -155,7 +235,10 @@ function parseBody(req) {
       const params = new URLSearchParams(raw);
       resolve({
         token: String(params.get("token") || "").trim(),
+        riskToken: String(params.get("riskToken") || "").trim(),
         completionNote: String(params.get("completionNote") || "").trim(),
+        reviewNote: String(params.get("reviewNote") || "").trim(),
+        additionalRisks: String(params.get("additionalRisks") || "").trim(),
       });
     });
     req.on("error", reject);
@@ -174,6 +257,21 @@ module.exports = async function handler(req, res) {
   const snapshot = await readStoredState();
 
   if (req.method === "GET") {
+    const riskToken = String(req.query?.riskToken || "").trim();
+    if (riskToken) {
+      const project = findProjectByRiskToken(snapshot.state, riskToken);
+      if (!project) {
+        res.status(404).send(messagePage("没有找到这份风险报告", "这条审核链接可能已失效，或者对应订单已经被删除。", "error"));
+        return;
+      }
+      if (project.aiRiskReviewStatus === "已确认" || project.aiRiskReviewedAt) {
+        res.status(200).send(riskReviewCompletedPage(project));
+        return;
+      }
+      res.status(200).send(riskReviewFormPage(riskToken, project));
+      return;
+    }
+
     const token = String(req.query?.token || "").trim();
     if (!token) {
       res.status(400).send(messagePage("确认链接不完整", "缺少确认 token，请从企业微信推送消息里的原始链接重新进入。", "error"));
@@ -197,6 +295,53 @@ module.exports = async function handler(req, res) {
     body = await parseBody(req);
   } catch (error) {
     res.status(400).send(messagePage("提交失败", error instanceof Error ? error.message : String(error), "error"));
+    return;
+  }
+
+  const riskToken = String(body.riskToken || req.query?.riskToken || "").trim();
+  if (riskToken) {
+    const project = findProjectByRiskToken(snapshot.state, riskToken);
+    if (!project) {
+      res.status(404).send(messagePage("没有找到这份风险报告", "这条审核链接可能已失效，或者对应订单已经被删除。", "error"));
+      return;
+    }
+    if (project.aiRiskReviewStatus === "已确认" || project.aiRiskReviewedAt) {
+      res.status(200).send(riskReviewCompletedPage(project));
+      return;
+    }
+    const reviewNote = String(body.reviewNote || "").trim().slice(0, MAX_NOTE_LENGTH);
+    const additionalRisks = String(body.additionalRisks || "").trim().slice(0, MAX_NOTE_LENGTH);
+    if (!reviewNote) {
+      res.status(400).send(riskReviewFormPage(riskToken, project, "请先填写审核意见，再点击确认。"));
+      return;
+    }
+
+    const now = chinaDateTimeString(new Date());
+    project.aiRiskReviewStatus = "已确认";
+    project.aiRiskReviewedAt = now;
+    project.aiRiskReviewedBy = project.aiRiskReviewer || "风险审核负责人";
+    project.aiRiskReviewNote = reviewNote;
+    project.aiRiskAdditionalRisks = additionalRisks;
+    project.logs = [
+      { time: now, actor: project.aiRiskReviewedBy, action: "风险审核确认", detail: `审核意见：${reviewNote}${additionalRisks ? `；补充风险：${additionalRisks}` : ""}` },
+      ...(Array.isArray(project.logs) ? project.logs : []),
+    ].slice(0, 100);
+    project.followUps = [
+      { time: now, user: project.aiRiskReviewedBy, progress: "完成风险预测审核", nextAction: reviewNote },
+      ...(Array.isArray(project.followUps) ? project.followUps : []),
+    ].slice(0, 50);
+
+    try {
+      await notifyRiskRequester(snapshot.state, project);
+    } catch (error) {
+      project.aiRiskReviewReceiptError = error instanceof Error ? error.message : String(error);
+    }
+
+    await writeStoredState(snapshot.state);
+    res.status(200).send(messagePage(
+      "风险审核已完成",
+      `${riskProjectContextText(project)}\n审核意见：${project.aiRiskReviewNote}\n补充风险：${project.aiRiskAdditionalRisks || "无"}\n可以关闭这个页面。`,
+    ));
     return;
   }
 
