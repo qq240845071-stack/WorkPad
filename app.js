@@ -1039,6 +1039,15 @@ function uid() {
   return `project-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function reviewToken(prefix = "risk-review") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function absoluteAppUrl(path) {
+  if (typeof window === "undefined" || !window.location?.origin) return path;
+  return `${window.location.origin}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function addDays(date, offset) {
   const next = new Date(date);
   next.setDate(next.getDate() + offset);
@@ -1588,6 +1597,18 @@ function createSeedProject(row) {
     aiRiskAssessedAt: "",
     aiRiskAssessedBy: "",
     aiRiskReviewer: "",
+    aiRiskReviewStatus: "",
+    aiRiskReviewToken: "",
+    aiRiskReviewUrl: "",
+    aiRiskReviewRequestedAt: "",
+    aiRiskReviewRequestedBy: "",
+    aiRiskReviewSentAt: "",
+    aiRiskReviewError: "",
+    aiRiskReviewedAt: "",
+    aiRiskReviewedBy: "",
+    aiRiskReviewNote: "",
+    aiRiskAdditionalRisks: "",
+    aiRiskReviewReceiptError: "",
     reminderPerson: "",
     reminderDate: "",
     reminders: [],
@@ -1663,6 +1684,18 @@ function normalizeProject(project) {
     aiRiskAssessedAt: textValue(project.aiRiskAssessedAt || ""),
     aiRiskAssessedBy: textValue(project.aiRiskAssessedBy || ""),
     aiRiskReviewer: textValue(project.aiRiskReviewer || ""),
+    aiRiskReviewStatus: textValue(project.aiRiskReviewStatus || ""),
+    aiRiskReviewToken: textValue(project.aiRiskReviewToken || ""),
+    aiRiskReviewUrl: textValue(project.aiRiskReviewUrl || ""),
+    aiRiskReviewRequestedAt: textValue(project.aiRiskReviewRequestedAt || ""),
+    aiRiskReviewRequestedBy: textValue(project.aiRiskReviewRequestedBy || ""),
+    aiRiskReviewSentAt: textValue(project.aiRiskReviewSentAt || ""),
+    aiRiskReviewError: textValue(project.aiRiskReviewError || ""),
+    aiRiskReviewedAt: textValue(project.aiRiskReviewedAt || ""),
+    aiRiskReviewedBy: textValue(project.aiRiskReviewedBy || ""),
+    aiRiskReviewNote: textValue(project.aiRiskReviewNote || ""),
+    aiRiskAdditionalRisks: textValue(project.aiRiskAdditionalRisks || ""),
+    aiRiskReviewReceiptError: textValue(project.aiRiskReviewReceiptError || ""),
     reminders,
     reminderPerson,
     reminderDate: dateTimeString(reminderDate),
@@ -2151,6 +2184,77 @@ async function generateAiRiskAssessment() {
   }
 }
 
+function buildRiskReviewPushContent(project) {
+  return [
+    "【WorkPad 风险预测审核】",
+    `项目：${project.title}`,
+    `编号：${project.code}`,
+    `状态：${project.status} / ${project.currentNode}`,
+    `发起人：${project.aiRiskAssessedBy || currentUser().name || "WorkPad"}`,
+    `生成时间：${project.aiRiskAssessedAt || dateTimeString(new Date())}`,
+    "",
+    "AI 已生成风险预测报告，请你确认是否还有其他潜在风险，并填写审核意见。",
+    project.aiRiskReviewUrl ? `审核链接：${project.aiRiskReviewUrl}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+async function requestProjectRiskReview(project, reviewer, actor) {
+  const reviewerName = textValue(reviewer);
+  if (!reviewerName) {
+    project.aiRiskReviewStatus = "未指定审核人";
+    project.aiRiskReviewError = "业务线尚未配置风险预测审核负责人。";
+    saveProjects();
+    await flushRemoteSync();
+    return { ok: false, skipped: true, message: project.aiRiskReviewError };
+  }
+
+  const now = new Date();
+  project.aiRiskReviewer = reviewerName;
+  project.aiRiskReviewToken = project.aiRiskReviewToken || reviewToken();
+  project.aiRiskReviewUrl = absoluteAppUrl(`/api/risks/review?token=${encodeURIComponent(project.aiRiskReviewToken)}`);
+  project.aiRiskReviewStatus = "待审核";
+  project.aiRiskReviewRequestedAt = dateTimeString(now);
+  project.aiRiskReviewRequestedBy = actor || currentUser().name || "WorkPad";
+  project.aiRiskReviewError = "";
+  project.aiRiskReviewedAt = "";
+  project.aiRiskReviewedBy = "";
+  project.aiRiskReviewNote = "";
+  project.aiRiskAdditionalRisks = "";
+  saveProjects();
+  await flushRemoteSync();
+
+  const content = buildRiskReviewPushContent(project);
+  try {
+    const response = await fetch("/api/wecom/send-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        memberKeyword: reviewerName,
+        content,
+        actor: project.aiRiskReviewRequestedBy,
+        source: "风险预测审核",
+        projectCode: project.code,
+        projectTitle: project.title,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.message || result.error || "风险预测审核推送失败");
+    project.aiRiskReviewStatus = "已推送待审核";
+    project.aiRiskReviewSentAt = dateTimeString(new Date());
+    project.aiRiskReviewError = "";
+    recordProjectOperation(project, project.aiRiskReviewRequestedBy, "推送风险审核", `已推送给 ${reviewerName} 审核风险预测报告。`);
+    return { ok: true };
+  } catch (error) {
+    project.aiRiskReviewStatus = "推送失败";
+    project.aiRiskReviewError = error instanceof Error ? error.message : String(error);
+    recordProjectOperation(project, project.aiRiskReviewRequestedBy, "风险审核推送失败", `推送给 ${reviewerName} 失败：${project.aiRiskReviewError}`);
+    return { ok: false, error: project.aiRiskReviewError };
+  } finally {
+    saveProjects();
+    await flushRemoteSync();
+  }
+}
+
 async function generateProjectAiRiskAssessment(project) {
   if (!project || state.projectAiRiskPending) return;
   state.projectAiRiskPending = project.id;
@@ -2172,8 +2276,7 @@ async function generateProjectAiRiskAssessment(project) {
     project.aiRiskAssessedBy = currentUser().name || "后台用户";
     project.aiRiskReviewer = riskConfig.reviewer || "";
     recordProjectOperation(project, project.aiRiskAssessedBy, "AI 风险预测", "生成订单风险预测报告。", now);
-    saveProjects();
-    await flushRemoteSync();
+    await requestProjectRiskReview(project, riskConfig.reviewer, project.aiRiskAssessedBy);
   } catch (error) {
     state.projectAiRiskError = error instanceof Error ? error.message : String(error);
   } finally {
@@ -3167,6 +3270,7 @@ function renderProjectAiRiskHtml(project, canEditProject) {
   const riskConfig = riskConfigForProject(project);
   const reviewer = riskConfig.reviewer || project.aiRiskReviewer || "暂未指定";
   const pending = state.projectAiRiskPending === project.id;
+  const reviewStatus = project.aiRiskReviewStatus || (project.aiRiskReport ? "待推送审核" : "未生成");
   return `
     <section class="detail-card">
       <div class="table-toolbar">
@@ -3174,11 +3278,31 @@ function renderProjectAiRiskHtml(project, canEditProject) {
           <h3>AI 风险预测</h3>
           <p class="mini-text">结合订单信息、节点进度、工艺卡和业务线风险配置生成。审核负责人：${escapeHtml(reviewer)}</p>
         </div>
-        <button type="button" class="button button-primary" data-drawer-action="project-ai-risk" ${canEditProject && riskConfig.enabled ? "" : "disabled"}>${pending ? "预测中" : "生成风险预测"}</button>
+        <div class="toolbar-actions">
+          <button type="button" class="button button-primary" data-drawer-action="project-ai-risk" ${canEditProject && riskConfig.enabled ? "" : "disabled"}>${pending ? "预测中" : "生成风险预测"}</button>
+          <button type="button" class="button button-secondary" data-drawer-action="resend-risk-review" ${canEditProject && project.aiRiskReport && riskConfig.reviewer ? "" : "disabled"}>推送审核</button>
+        </div>
       </div>
       ${state.projectAiRiskError && state.selectedProjectId === project.id ? `<div class="ai-error">${escapeHtml(state.projectAiRiskError)}</div>` : ""}
       <div class="ai-result">${project.aiRiskReport ? formatMessageText(project.aiRiskReport) : "还没有生成风险报告。点击按钮后，AI 会输出风险等级、主要风险点、质检重点和下一步动作。"}</div>
-      ${project.aiRiskAssessedAt ? `<p class="mini-text">生成时间：${escapeHtml(project.aiRiskAssessedAt)} · 生成人：${escapeHtml(project.aiRiskAssessedBy || "-")}</p>` : ""}
+      <div class="risk-review-box">
+        <div class="inline-chips">
+          <span class="chip chip-status">审核状态：${escapeHtml(reviewStatus)}</span>
+          <span class="chip chip-status">审核人：${escapeHtml(reviewer)}</span>
+        </div>
+        ${project.aiRiskAssessedAt ? `<p class="mini-text">生成时间：${escapeHtml(project.aiRiskAssessedAt)} · 生成人：${escapeHtml(project.aiRiskAssessedBy || "-")}</p>` : ""}
+        ${project.aiRiskReviewSentAt ? `<p class="mini-text">推送时间：${escapeHtml(project.aiRiskReviewSentAt)}</p>` : ""}
+        ${project.aiRiskReviewError ? `<div class="ai-error">${escapeHtml(project.aiRiskReviewError)}</div>` : ""}
+        ${project.aiRiskReviewedAt ? `
+          <div class="ai-result risk-review-result">
+            <strong>审核已确认</strong><br />
+            审核人：${escapeHtml(project.aiRiskReviewedBy || reviewer)}<br />
+            确认时间：${escapeHtml(project.aiRiskReviewedAt)}<br />
+            审核意见：${formatMessageText(project.aiRiskReviewNote || "未填写")}<br />
+            补充风险：${formatMessageText(project.aiRiskAdditionalRisks || "无")}
+          </div>` : ""}
+        ${project.aiRiskReviewUrl && !project.aiRiskReviewedAt ? `<p class="mini-text">审核链接已生成，审核负责人也可以通过企业微信消息进入。</p>` : ""}
+      </div>
     </section>`;
 }
 
@@ -3794,6 +3918,12 @@ async function handleDrawerAction(action) {
   }
   if (action === "project-ai-risk") {
     await generateProjectAiRiskAssessment(current);
+    return;
+  }
+  if (action === "resend-risk-review") {
+    const riskConfig = riskConfigForProject(current);
+    await requestProjectRiskReview(current, riskConfig.reviewer || current.aiRiskReviewer, currentUser().name || "后台用户");
+    render();
     return;
   }
   if (action === "save-process-card") {

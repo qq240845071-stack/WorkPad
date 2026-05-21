@@ -99,8 +99,8 @@ module.exports = async (req, res) => {
         success: false,
         source,
         error: error instanceof Error ? error.message : String(error),
-        projectCode: projectForLog?.code,
-        projectTitle: projectForLog?.title,
+        projectCode: projectForLog?.code || body.projectCode,
+        projectTitle: projectForLog?.title || body.projectTitle,
       });
       await writeStoredState(state);
       throw error;
@@ -112,8 +112,8 @@ module.exports = async (req, res) => {
       receiverUserId: toUser,
       success: true,
       source,
-      projectCode: projectForLog?.code,
-      projectTitle: projectForLog?.title,
+      projectCode: projectForLog?.code || body.projectCode,
+      projectTitle: projectForLog?.title || body.projectTitle,
     });
     await writeStoredState(state);
     return sendJson(res, 200, {
