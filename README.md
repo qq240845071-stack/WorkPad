@@ -99,7 +99,7 @@ vercel dev --listen 4173
 1. 对话：默认 `deepseek-v4-flash`
 2. 风险评估：默认 `deepseek-v4-flash`
 3. 图片识别：默认 `qwen3-vl-flash`
-4. 自然语言指令：默认 `deepseek-v4-flash`
+4. 自然语言指令：默认 `deepseek-v4-pro`
 5. 语音转文字：默认 `whisper-1`
 
 如果后续需要给某个任务单独配置密钥，可使用服务端环境变量：

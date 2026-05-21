@@ -3,6 +3,9 @@ const os = require("node:os");
 const path = require("node:path");
 
 const BLOB_PATHNAME = "workpad/ai-settings.json";
+const LEGACY_COMMAND_MODEL = "deepseek-v4-flash";
+const COMMAND_MODEL = "deepseek-v4-pro";
+const COMMAND_PROVIDER_NAME = "云雾 DeepSeek V4 Pro";
 
 const DEFAULT_AI_SETTINGS = {
   chat: {
@@ -25,9 +28,9 @@ const DEFAULT_AI_SETTINGS = {
   },
   command: {
     label: "自然语言指令",
-    providerName: "云雾 DeepSeek V4 Flash",
+    providerName: COMMAND_PROVIDER_NAME,
     baseUrl: "https://yunwu.ai/v1",
-    model: "deepseek-v4-flash",
+    model: COMMAND_MODEL,
   },
   transcription: {
     label: "语音转文字",
@@ -48,11 +51,17 @@ function nowIso() {
 function normalizeTaskConfig(task, value) {
   const defaults = DEFAULT_AI_SETTINGS[task];
   const config = value && typeof value === "object" ? value : {};
+  let providerName = String(config.providerName || defaults.providerName).trim();
+  let model = String(config.model || defaults.model).trim();
+  if (task === "command" && model === LEGACY_COMMAND_MODEL) {
+    providerName = COMMAND_PROVIDER_NAME;
+    model = COMMAND_MODEL;
+  }
   return {
     label: defaults.label,
-    providerName: String(config.providerName || defaults.providerName).trim(),
+    providerName,
     baseUrl: String(config.baseUrl || defaults.baseUrl).trim().replace(/\/+$/, ""),
-    model: String(config.model || defaults.model).trim(),
+    model,
   };
 }
 
