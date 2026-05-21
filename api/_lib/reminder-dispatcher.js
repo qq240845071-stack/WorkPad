@@ -154,6 +154,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
           projectTitle: project.title,
         });
       }
+      if (!dryRun) await writeStoredState(state);
       results.push({ ...baseResult, ok: false, skipped: true, error: reminder.lastError });
       continue;
     }
@@ -198,6 +199,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
         projectTitle: project.title,
         ...confirmationPayload(reminder, "project", confirmationEnabled),
       });
+      await writeStoredState(state);
       results.push({ ...baseResult, ok: true, toUser: member.wecomUserId });
     } catch (error) {
       reminder.status = "failed";
@@ -219,6 +221,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
         projectTitle: project.title,
         ...confirmationPayload(reminder, "project", confirmationEnabled),
       });
+      await writeStoredState(state);
       results.push({ ...baseResult, ok: false, toUser: member.wecomUserId, error: reminder.lastError });
     }
   }
@@ -301,6 +304,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
           ...confirmationPayload(reminder, "public", confirmationEnabled),
         });
       }
+      if (!dryRun) await writeStoredState(state);
       results.push({ ...baseResult, ok: false, skipped: true, error: reminder.lastError });
       continue;
     }
@@ -333,6 +337,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
         source: "公共提醒",
         ...confirmationPayload(reminder, "public", confirmationEnabled),
       });
+      await writeStoredState(state);
       results.push({ ...baseResult, ok: true, toUser: member.wecomUserId });
     } catch (error) {
       reminder.status = "failed";
@@ -351,6 +356,7 @@ async function dispatchDueReminders({ dryRun = false } = {}) {
         error: reminder.lastError,
         ...confirmationPayload(reminder, "public", confirmationEnabled),
       });
+      await writeStoredState(state);
       results.push({ ...baseResult, ok: false, toUser: member.wecomUserId, error: reminder.lastError });
     }
   }

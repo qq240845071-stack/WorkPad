@@ -60,6 +60,11 @@ function normalizeReminderItem(item, project, index = 0) {
     completedAt: textValue(source.completedAt || ""),
     completedBy: textValue(source.completedBy || ""),
     completionNote: textValue(source.completionNote || ""),
+    receiptStatus: textValue(source.receiptStatus || ""),
+    receiptTarget: textValue(source.receiptTarget || ""),
+    receiptRequestedAt: textValue(source.receiptRequestedAt || ""),
+    receiptSentAt: textValue(source.receiptSentAt || ""),
+    receiptError: textValue(source.receiptError || ""),
     updatedAt: textValue(source.updatedAt || ""),
     updatedBy: textValue(source.updatedBy || ""),
   };
@@ -258,10 +263,10 @@ function shouldDispatchReminder(project, reminder, now) {
   if (!reminder.pending) return false;
   const status = textValue(reminder.status);
   if (status === "sent" || status === "completed" || status === "cancelled") return false;
+  if (status === "sending") return false;
   const dueAt = parseChinaReminderDate(reminder.date);
   if (!dueAt || dueAt.getTime() > now.getTime()) return false;
   const lastAttempt = reminder.lastAttemptAt ? new Date(reminder.lastAttemptAt) : null;
-  if (status === "sending" && lastAttempt && Number.isFinite(lastAttempt.getTime()) && now.getTime() - lastAttempt.getTime() < RETRY_INTERVAL_MS) return false;
   if (lastAttempt && Number.isFinite(lastAttempt.getTime()) && now.getTime() - lastAttempt.getTime() < RETRY_INTERVAL_MS) return false;
   return true;
 }

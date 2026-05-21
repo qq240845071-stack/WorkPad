@@ -3,6 +3,8 @@ const { completeReminderByToken, normalizeProjectReminders, normalizePublicRemin
 const { findMember, sendAppTextMessage } = require("../_lib/wecom-service");
 
 const MAX_NOTE_LENGTH = 600;
+const RECEIPT_LOCK_TTL_MS = 10 * 60 * 1000;
+const recentReceiptLocks = new Map();
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -11,6 +13,18 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function rememberReceiptLock(token) {
+  const normalized = String(token || "").trim();
+  if (!normalized) return false;
+  const now = Date.now();
+  for (const [storedToken, timestamp] of recentReceiptLocks.entries()) {
+    if (now - timestamp > RECEIPT_LOCK_TTL_MS) recentReceiptLocks.delete(storedToken);
+  }
+  if (recentReceiptLocks.has(normalized)) return false;
+  recentReceiptLocks.set(normalized, now);
+  return true;
 }
 
 function page(title, body, tone = "success") {
@@ -53,10 +67,12 @@ function messagePage(title, message, tone = "success") {
 
 function findReminderByToken(state, token) {
   for (const project of Array.isArray(state.projects) ? state.projects : []) {
-    const reminder = normalizeProjectReminders(project).find((item) => item.confirmationToken === token);
+    project.reminders = normalizeProjectReminders(project);
+    const reminder = project.reminders.find((item) => item.confirmationToken === token);
     if (reminder) return { scope: "project", project, reminder };
   }
-  const reminder = normalizePublicReminders(state.publicReminders).find((item) => item.confirmationToken === token);
+  state.publicReminders = normalizePublicReminders(state.publicReminders);
+  const reminder = state.publicReminders.find((item) => item.confirmationToken === token);
   return reminder ? { scope: "public", reminder } : null;
 }
 
@@ -95,26 +111,53 @@ function buildCompletionReceipt(result) {
     "信息已被接收，对方已填写完成说明。",
     receiptContextText(result),
     `回复内容：${result.reminder.completionNote || "未填写"}`,
-    `确认时间：${result.reminder.completedAt || "刚刚"}`,
+    `确认时间：${result.reminder.completedAt ? chinaDateTimeString(result.reminder.completedAt) : "刚刚"}`,
   ].filter(Boolean).join("\n");
 }
 
-async function notifyReminderActor(state, result) {
+function prepareReminderActorReceipt(state, result) {
+  const receiptStatus = String(result?.reminder?.receiptStatus || "").trim();
+  if (receiptStatus === "sent" || receiptStatus === "sending") {
+    return { skipped: true, reason: "回执已经发送或正在发送。" };
+  }
+
   const actorName = String(result?.reminder?.actor || "").trim();
-  if (!actorName || actorName === "WorkPad 管家") return { skipped: true, reason: "没有可通知的发起人。" };
+  if (!actorName || actorName === "WorkPad 管家") {
+    result.reminder.receiptStatus = "skipped";
+    result.reminder.receiptError = "没有可通知的发起人。";
+    return { skipped: true, reason: result.reminder.receiptError };
+  }
+
   const actorMember = findMember(state, actorName);
   const content = buildCompletionReceipt(result);
 
   if (!actorMember || !actorMember.wecomUserId) {
     const error = "提醒发起人还没有绑定企业微信账号 UserId。";
+    result.reminder.receiptStatus = "failed";
+    result.reminder.receiptError = error;
     return { ok: false, error };
   }
 
+  result.reminder.receiptStatus = "sending";
+  result.reminder.receiptTarget = actorMember.wecomUserId;
+  result.reminder.receiptRequestedAt = new Date().toISOString();
+  result.reminder.receiptError = "";
+  return { ok: true, toUser: actorMember.wecomUserId, content };
+}
+
+async function sendPreparedReminderReceipt(result, receipt) {
+  if (!receipt?.ok) return receipt;
+
   try {
-    await sendAppTextMessage({ toUser: actorMember.wecomUserId, content });
+    await sendAppTextMessage({ toUser: receipt.toUser, content: receipt.content });
+    result.reminder.receiptStatus = "sent";
+    result.reminder.receiptSentAt = new Date().toISOString();
+    result.reminder.receiptError = "";
     return { ok: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    result.reminder.receiptStatus = "failed";
+    result.reminder.receiptError = message;
     return { ok: false, error: message };
   }
 }
@@ -372,10 +415,18 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  await notifyReminderActor(snapshot.state, result);
+  const receipt = rememberReceiptLock(token)
+    ? prepareReminderActorReceipt(snapshot.state, result)
+    : { skipped: true, reason: "同一条提醒确认正在处理，已跳过重复回执。" };
   await writeStoredState(snapshot.state);
+
+  if (receipt.ok) {
+    await sendPreparedReminderReceipt(result, receipt);
+    await writeStoredState(snapshot.state);
+  }
+
   res.status(200).send(messagePage(
     "提醒已标记为完成",
-    `${reminderContextText(result)}\n完成说明：${result.reminder.completionNote}\n完成时间：${result.reminder.completedAt || "刚刚"}\n可以关闭这个页面。`,
+    `${reminderContextText(result)}\n完成说明：${result.reminder.completionNote}\n完成时间：${result.reminder.completedAt ? chinaDateTimeString(result.reminder.completedAt) : "刚刚"}\n可以关闭这个页面。`,
   ));
 };
