@@ -1,5 +1,7 @@
 const { readStoredState, writeStoredState } = require("../_lib/store");
 const { completeReminderByToken, normalizeProjectReminders, normalizePublicReminders } = require("../_lib/reminders");
+const { findMember, sendAppTextMessage } = require("../_lib/wecom-service");
+const { appendPushLog } = require("../_lib/push-log");
 
 const MAX_NOTE_LENGTH = 600;
 
@@ -68,6 +70,84 @@ function reminderContextText(result) {
     `提醒时间：${result.reminder.date}`,
     `事项：${result.reminder.note}`,
   ].join("\n");
+}
+
+function receiptContextText(result) {
+  if (!result) return "";
+  const lines = [];
+  if (result.scope === "project" && result.project) {
+    lines.push(`项目：${result.project.title}`);
+    lines.push(`编号：${result.project.code}`);
+    lines.push(`状态：${result.project.status} / ${result.project.currentNode}`);
+  } else {
+    lines.push("类型：公共提醒");
+  }
+  lines.push(`提醒人：${result.reminder.person}`);
+  lines.push(`提醒时间：${result.reminder.date}`);
+  lines.push(`事项：${result.reminder.note}`);
+  return lines.join("\n");
+}
+
+function buildCompletionReceipt(result) {
+  return [
+    "【WorkPad 提醒回执】",
+    "信息已被接收，对方已填写完成说明。",
+    receiptContextText(result),
+    `回复内容：${result.reminder.completionNote || "未填写"}`,
+    `确认时间：${result.reminder.completedAt || "刚刚"}`,
+  ].filter(Boolean).join("\n");
+}
+
+async function notifyReminderActor(state, result) {
+  const actorName = String(result?.reminder?.actor || "").trim();
+  if (!actorName || actorName === "WorkPad 管家") return { skipped: true, reason: "没有可通知的发起人。" };
+  const actorMember = findMember(state, actorName);
+  const content = buildCompletionReceipt(result);
+  const logPayload = {
+    content,
+    actor: "WorkPad 管家",
+    receiver: actorName,
+    receiverUserId: actorMember?.wecomUserId || "",
+    source: "确认回执",
+    projectCode: result.scope === "project" ? result.project?.code : "",
+    projectTitle: result.scope === "project" ? result.project?.title : "",
+    reminderId: result.reminder.id,
+    reminderScope: result.scope,
+  };
+
+  if (!actorMember || !actorMember.wecomUserId) {
+    const error = "提醒发起人还没有绑定企业微信账号 UserId。";
+    appendPushLog(state, {
+      ...logPayload,
+      success: false,
+      status: "失败",
+      error,
+    });
+    return { ok: false, error };
+  }
+
+  try {
+    await sendAppTextMessage({ toUser: actorMember.wecomUserId, content });
+    appendPushLog(state, {
+      ...logPayload,
+      receiver: actorMember.name,
+      receiverUserId: actorMember.wecomUserId,
+      success: true,
+      status: "成功",
+    });
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendPushLog(state, {
+      ...logPayload,
+      receiver: actorMember.name,
+      receiverUserId: actorMember.wecomUserId,
+      success: false,
+      status: "失败",
+      error: message,
+    });
+    return { ok: false, error: message };
+  }
 }
 
 function formPage(token, result, error = "") {
@@ -173,12 +253,14 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const result = completeReminderByToken(snapshot.state, token, "企业微信确认", completionNote);
+  const completedBy = existing.reminder.person || "企业微信确认";
+  const result = completeReminderByToken(snapshot.state, token, completedBy, completionNote);
   if (!result) {
     res.status(404).send(messagePage("没有找到这条提醒", "这条确认链接可能已失效，或者对应提醒已经被删除。", "error"));
     return;
   }
 
+  await notifyReminderActor(snapshot.state, result);
   await writeStoredState(snapshot.state);
   res.status(200).send(messagePage(
     "提醒已标记为完成",
