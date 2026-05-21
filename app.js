@@ -259,6 +259,7 @@ const ADMIN_TAB_RULES = {
   permissions: ["管理权限"],
   partners: ["管理合作方"],
   businessLines: ["管理流程节点"],
+  productCards: ["管理流程节点"],
   workflow: ["管理流程节点"],
   reminders: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
   pushLogs: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
@@ -2049,6 +2050,7 @@ function renderAdminNav() {
     ["permissions", "权限分配", "按角色查看权限矩阵"],
     ["partners", "合作方管理", "合作方主数据和项目引用"],
     ["businessLines", "业务线管理", "出版、设计、生产等业务分类"],
+    ["productCards", "工艺卡配置", "按业务线维护产品工艺卡字段"],
     ["workflow", "流程节点配置", "按业务线维护节点增删改"],
     ["reminders", "提醒中心", "订单提醒、公共提醒和确认状态"],
     ["pushLogs", "推送记录", "内容、时间、发起人和发送结果"],
@@ -2674,6 +2676,7 @@ function renderAdminContent() {
     permissions: ["权限分配", "当前可以在这里调整角色权限矩阵。"],
     partners: ["合作方管理", `当前已整理 ${getPartners().length} 个合作方，项目录入时已改成通过选择进入。`],
     businessLines: ["业务线管理", `当前共 ${businessLineOptions().length} 条业务线，可分别维护流程名称和说明。`],
+    productCards: ["工艺卡配置", "按业务线配置订单详情里的产品工艺卡字段。"],
     workflow: ["流程节点配置", "可以按业务线维护流程节点、产品工艺卡、风险预测配置和审核负责人。"],
     reminders: ["提醒中心", `当前共有 ${activePublicReminders().length} 条未完成公共提醒，订单提醒和公共提醒都可在这里看确认状态。`],
     pushLogs: ["信息推送记录", `当前共 ${state.pushLogs.length} 条推送记录，包含成功、失败和失败原因。`],
@@ -2951,6 +2954,60 @@ function renderAdminContent() {
             </tbody>
           </table>
         </div>`;
+      return;
+    }
+
+    if (state.adminTab === "productCards") {
+      const canManageWorkflow = hasPermission("管理流程节点");
+      const workflowLine = businessLineById(state.selectedWorkflowLineId);
+      elements.adminContent.innerHTML = `
+        <div class="data-panel-stack">
+          <section class="data-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>按业务线配置产品工艺卡</h3>
+                <div class="mini-text">这里配置的字段，会显示在订单详情页的“产品工艺卡”里。</div>
+              </div>
+              <button type="button" class="button button-primary" data-admin-action="add-process-card-field" ${canManageWorkflow ? "" : "disabled"}>新增工艺字段</button>
+            </div>
+            <div class="workflow-config-toolbar">
+              <label class="mini-field">
+                <span>当前业务线</span>
+                <select data-workflow-line-select ${canManageWorkflow ? "" : "disabled"}>
+                  ${businessLineOptions().map((line) => `<option value="${escapeHtml(line.id)}" ${workflowLine.id === line.id ? "selected" : ""}>${escapeHtml(line.name)}</option>`).join("")}
+                </select>
+              </label>
+              <label class="mini-field">
+                <span>流程名称</span>
+                <input value="${escapeHtml(workflowLine.workflowName)}" data-workflow-line-field="workflowName" ${canManageWorkflow ? "" : "disabled"} />
+              </label>
+              <label class="mini-field workflow-description-field">
+                <span>业务线说明</span>
+                <input value="${escapeHtml(workflowLine.description || "")}" data-workflow-line-field="description" ${canManageWorkflow ? "" : "disabled"} />
+              </label>
+            </div>
+          </section>
+        </div>
+        <div class="table-wrapper process-config-wrapper">
+          <table>
+            <thead><tr><th>字段名</th><th>类型</th><th>下拉选项</th><th>占位提示</th><th>必填</th><th>操作</th></tr></thead>
+            <tbody>
+              ${workflowLine.processCardFields.map((field) => `
+                <tr>
+                  <td><input type="text" value="${escapeHtml(field.label)}" data-process-field-id="${escapeHtml(field.id)}" data-process-field="label" ${canManageWorkflow ? "" : "disabled"} /></td>
+                  <td><select data-process-field-id="${escapeHtml(field.id)}" data-process-field="type" ${canManageWorkflow ? "" : "disabled"}>${PROCESS_FIELD_TYPES.map(([type, label]) => `<option value="${escapeHtml(type)}" ${field.type === type ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select></td>
+                  <td><textarea rows="3" placeholder="一行一个选项" data-process-field-id="${escapeHtml(field.id)}" data-process-field="options" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(field.options || "")}</textarea></td>
+                  <td><input type="text" value="${escapeHtml(field.placeholder || "")}" data-process-field-id="${escapeHtml(field.id)}" data-process-field="placeholder" ${canManageWorkflow ? "" : "disabled"} /></td>
+                  <td><input type="checkbox" data-process-field-id="${escapeHtml(field.id)}" data-process-field="required" ${field.required ? "checked" : ""} ${canManageWorkflow ? "" : "disabled"} /></td>
+                  <td><button type="button" class="table-action table-action-danger" data-admin-action="delete-process-card-field" data-process-field-id="${escapeHtml(field.id)}" ${canManageWorkflow ? "" : "disabled"}>删除</button></td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        <section class="settings-panel">
+          <h3>在哪里能看到工艺卡？</h3>
+          <div class="mini-text">新建或打开一个订单后，订单详情页会显示“产品工艺卡”。如果当前没有订单，需要先新建订单；之前我们已经把演示订单清空，所以前台不会自动出现演示订单。</div>
+        </section>`;
       return;
     }
 
