@@ -2212,15 +2212,33 @@ function reminderTabItems() {
   return tabs.map(([key, label]) => [key, label, rows.filter((row) => reminderTabMatches(row, key)).length]);
 }
 
+function isDemoSuppressedReminder(reminder) {
+  const id = String(reminder?.id || "");
+  const source = String(reminder?.source || "");
+  return id.startsWith("reminder-demo-") || source === "演示数据";
+}
+
 function confirmationStatusText(reminder) {
   if (reminder.status === "completed" || reminder.completedAt) {
     const by = reminder.completedBy ? ` · ${reminder.completedBy}` : "";
     return `已完成${by}`;
   }
+  if (isDemoSuppressedReminder(reminder)) return "演示项目不推送";
   if (reminder.confirmable === false) return "无需确认";
   if (reminder.status === "sent") return "待对方确认";
   if (reminder.status === "failed") return "推送失败，待重试";
   return "未推送";
+}
+
+function pushLogStatusText(log) {
+  if (log.source === "命令反馈") return log.success ? "记录成功" : "反馈失败";
+  if (log.source === "确认回执") return log.success ? "回执成功" : "回执失败";
+  return log.status || (log.success ? "成功" : "失败");
+}
+
+function pushLogSourceText(log, projectText = "") {
+  const source = log.source === "命令反馈" ? "命令反馈（发给下命令人）" : log.source || "企业微信推送";
+  return [source, projectText].filter(Boolean).join(" / ");
 }
 
 function renderRemindersPanel() {
@@ -2352,7 +2370,7 @@ function renderPushLogsPanel() {
         <div class="table-toolbar">
           <div>
             <h3>企业微信信息推送记录</h3>
-            <div class="mini-text">记录每一次主动推送和到点提醒；系统会全部保留，不再自动删除旧记录。</div>
+            <div class="mini-text">记录每一次企业微信消息，包含命令反馈、到点提醒和确认回执；命令反馈成功只代表“命令已记录”，不等于到点提醒已经发送。</div>
           </div>
           <div class="toolbar-actions">
             <span class="chip chip-status">全部保留 ${pushLogs.length} 条 · 约 ${estimatedSizeKb} KB</span>
@@ -2369,7 +2387,8 @@ function renderPushLogsPanel() {
           <tbody>
             ${pushLogs.map((log) => {
               const projectText = [log.projectCode, log.projectTitle].filter(Boolean).join(" · ");
-              const sourceText = [log.source || "企业微信推送", projectText].filter(Boolean).join(" / ");
+              const sourceText = pushLogSourceText(log, projectText);
+              const statusText = pushLogStatusText(log);
               return `
                 <tr>
                   <td>${escapeHtml(formatPushLogTime(log.pushedAt))}</td>
@@ -2379,7 +2398,7 @@ function renderPushLogsPanel() {
                     ${log.receiverUserId ? `<div class="mini-text">${escapeHtml(log.receiverUserId)}</div>` : ""}
                   </td>
                   <td class="push-content-cell">${formatMessageText(log.content || "")}</td>
-                  <td><span class="chip ${log.success ? "chip-risk-low" : "chip-risk-high"}">${escapeHtml(log.status || (log.success ? "成功" : "失败"))}</span></td>
+                  <td><span class="chip ${log.success ? "chip-risk-low" : "chip-risk-high"}">${escapeHtml(statusText)}</span></td>
                   <td>
                     ${escapeHtml(log.completionStatus || (log.confirmable ? "待确认" : "-"))}
                     ${log.completedAt ? `<div class="mini-text">${escapeHtml(formatPushLogTime(log.completedAt))}</div>` : ""}
