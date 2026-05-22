@@ -1,4 +1,4 @@
-const { writeStoredState, resetStoredState, normalizeState } = require("./_lib/store");
+const { writeStoredState, resetStoredState, normalizeState, mergeIncomingStateWithStoredState } = require("./_lib/store");
 const { memberHasPermission, mergeMemberAuthFields, requireAuth, sanitizeStateForClient } = require("./_lib/auth");
 
 async function readJsonBody(req) {
@@ -12,6 +12,8 @@ async function readJsonBody(req) {
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
   res.end(JSON.stringify(payload));
 }
 
@@ -26,7 +28,19 @@ module.exports = async (req, res) => {
 
     if (req.method === "PUT") {
       const body = await readJsonBody(req);
-      const nextState = mergeMemberAuthFields(normalizeState(body.state), auth.state);
+      const baseRevision = Number(body.baseRevision);
+      const currentRevision = Number(auth.state.stateRevision || 0);
+      if (!Number.isFinite(baseRevision) || baseRevision !== currentRevision) {
+        return sendJson(res, 409, {
+          ok: false,
+          stale: true,
+          message: "当前页面数据已经过期，系统已阻止旧页面覆盖最新状态。请刷新页面后再重试刚才的操作。",
+          state: sanitizeStateForClient(auth.state),
+          meta: auth.snapshot.meta,
+        });
+      }
+      const incomingState = mergeMemberAuthFields(normalizeState(body.state), auth.state);
+      const nextState = mergeIncomingStateWithStoredState(incomingState, auth.state);
       const snapshot = await writeStoredState(nextState);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(snapshot.state), meta: snapshot.meta });
     }

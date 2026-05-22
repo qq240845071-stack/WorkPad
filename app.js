@@ -322,6 +322,9 @@ const runtime = {
   storageMode: "browser-local",
   persistence: "local",
   lastSyncedAt: "",
+  stateRevision: 0,
+  deploymentVersion: "",
+  lastVisibilityHydratedAt: 0,
   lastError: "",
 };
 
@@ -647,6 +650,19 @@ function processFieldOptions(field) {
     .filter(Boolean);
 }
 
+function processFieldSelectedValues(field, value) {
+  const options = processFieldOptions(field);
+  if (Array.isArray(value)) {
+    const selected = value.map((item) => textValue(item)).filter(Boolean);
+    return options.length ? options.filter((option) => selected.includes(option)) : selected;
+  }
+  const raw = textValue(value);
+  if (!raw) return [];
+  if (!options.length) return ["是", "true", "1", "已确认"].includes(raw) ? ["是"] : [];
+  const selected = raw.split(/[\n,，、]+/).map((item) => item.trim()).filter(Boolean);
+  return options.filter((option) => selected.includes(option));
+}
+
 function processCardFieldsForProject(project = {}) {
   return businessLineById(businessLineIdForProject(project))?.processCardFields || DEFAULT_PROCESS_CARD_FIELDS;
 }
@@ -843,10 +859,17 @@ function storageStatusText() {
 }
 
 function updateRuntimeMeta(meta) {
+  const nextDeploymentVersion = meta?.deploymentVersion || "";
+  if (runtime.deploymentVersion && nextDeploymentVersion && runtime.deploymentVersion !== nextDeploymentVersion) {
+    window.location.reload();
+    return;
+  }
   runtime.apiReady = true;
   runtime.storageMode = meta?.storageMode || "browser-local";
   runtime.persistence = meta?.persistence || "local";
   runtime.lastSyncedAt = meta?.updatedAt || "";
+  runtime.stateRevision = Number(meta?.stateRevision || 0);
+  runtime.deploymentVersion = nextDeploymentVersion;
   runtime.lastError = "";
 }
 
@@ -876,7 +899,7 @@ function syncAuthenticatedUser() {
 
 async function requestAuthSession() {
   try {
-    const response = await fetch("/api/auth/me");
+    const response = await fetch("/api/auth/me", { cache: "no-store" });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) return false;
     state.authUser = result.user;
@@ -966,6 +989,7 @@ async function changeCurrentPassword() {
 async function requestRemoteState(method = "GET", payload) {
   const response = await fetch("/api/state", {
     method,
+    cache: method === "GET" ? "no-store" : "no-cache",
     headers: { "Content-Type": "application/json" },
     body: payload ? JSON.stringify(payload) : undefined,
   });
@@ -973,6 +997,13 @@ async function requestRemoteState(method = "GET", payload) {
   if (response.status === 401) {
     await logout();
     throw new Error("登录已失效，请重新登录。");
+  }
+  if (response.status === 409 && result.stale) {
+    const error = new Error(result.message || "页面数据已过期，请刷新后重试。");
+    error.stale = true;
+    error.state = result.state;
+    error.meta = result.meta;
+    throw error;
   }
   if (!response.ok || !result.ok) {
     throw new Error(result.message || "后台接口请求失败");
@@ -1003,9 +1034,19 @@ async function pushRemoteState() {
   try {
     runtime.syncInFlight = true;
     renderNoticeBar();
-    const result = await requestRemoteState("PUT", { state: exportStateSnapshot() });
+    const result = await requestRemoteState("PUT", {
+      state: exportStateSnapshot(),
+      baseRevision: runtime.stateRevision,
+    });
     updateRuntimeMeta(result.meta);
   } catch (error) {
+    if (error && error.stale && error.state) {
+      applyStateSnapshot(error.state);
+      updateRuntimeMeta(error.meta || {});
+      render();
+      window.alert(error.message || "页面数据已过期，已自动同步最新内容。请重新执行刚才的操作。");
+      return;
+    }
     runtime.lastError = error instanceof Error ? error.message : String(error);
   } finally {
     runtime.syncInFlight = false;
@@ -1032,6 +1073,14 @@ async function resetRemoteState() {
   const result = await requestRemoteState("POST", { action: "reset-demo" });
   applyStateSnapshot(result.state || {});
   updateRuntimeMeta(result.meta);
+}
+
+async function refreshRemoteStateIfNeeded(force = false) {
+  if (!state.authReady || runtime.hydrating || runtime.syncInFlight) return;
+  const now = Date.now();
+  if (!force && now - runtime.lastVisibilityHydratedAt < 1500) return;
+  runtime.lastVisibilityHydratedAt = now;
+  await hydrateRemoteState();
 }
 
 function uid() {
@@ -3238,6 +3287,24 @@ function renderProcessCardControl(field, value, disabled) {
       </select>`;
   }
   if (field.type === "checkbox") {
+    const options = processFieldOptions(field);
+    if (options.length) {
+      const selected = new Set(processFieldSelectedValues(field, value));
+      return `
+        <div class="process-checkbox-group">
+          ${options.map((option) => `
+            <label class="process-checkbox">
+              <input
+                type="checkbox"
+                data-process-value-field="${escapeHtml(field.id)}"
+                data-process-value-option="${escapeHtml(option)}"
+                ${selected.has(option) ? "checked" : ""}
+                ${disabled ? "disabled" : ""}
+              />
+              ${escapeHtml(option)}
+            </label>`).join("")}
+        </div>`;
+    }
     return `<label class="process-checkbox"><input type="checkbox" data-process-value-field="${escapeHtml(field.id)}" ${value === "是" || value === true ? "checked" : ""} ${disabled ? "disabled" : ""} /> 已确认</label>`;
   }
   return `<input type="text" value="${escapeHtml(value || "")}" ${attr}${placeholder} />`;
@@ -3874,17 +3941,42 @@ function saveProcessCardFromDrawer(project) {
   const fields = processCardFieldsForProject(project);
   const values = { ...(project.processCardValues || {}) };
   const labelById = new Map(fields.map((field) => [field.id, field.label]));
-  for (const control of controls) {
+  const controlsByFieldId = controls.reduce((map, control) => {
     const fieldId = control.dataset.processValueField;
-    const field = fields.find((item) => item.id === fieldId);
-    if (!field) continue;
-    const value = control.type === "checkbox" ? (control.checked ? "是" : "否") : String(control.value || "").trim();
-    if (field.required && (!value || (field.type === "checkbox" && value !== "是"))) {
+    if (!fieldId) return map;
+    if (!map.has(fieldId)) map.set(fieldId, []);
+    map.get(fieldId).push(control);
+    return map;
+  }, new Map());
+  for (const field of fields) {
+    const fieldControls = controlsByFieldId.get(field.id) || [];
+    if (!fieldControls.length) continue;
+    let value = "";
+    let invalid = false;
+    let focusTarget = fieldControls[0];
+    if (field.type === "checkbox") {
+      const options = processFieldOptions(field);
+      if (options.length) {
+        const selected = fieldControls
+          .filter((control) => control.checked)
+          .map((control) => textValue(control.dataset.processValueOption))
+          .filter(Boolean);
+        value = selected.join("、");
+        invalid = field.required && !selected.length;
+      } else {
+        value = fieldControls[0].checked ? "是" : "否";
+        invalid = field.required && value !== "是";
+      }
+    } else {
+      value = String(fieldControls[0].value || "").trim();
+      invalid = field.required && !value;
+    }
+    if (invalid) {
       window.alert(`请填写工艺卡必填项：${field.label}`);
-      control.focus();
+      focusTarget.focus();
       return false;
     }
-    values[fieldId] = value;
+    values[field.id] = value;
   }
   project.processCardValues = values;
   const filledLabels = Object.entries(values)
@@ -4963,6 +5055,20 @@ function attachEvents() {
   });
   elements.formBusinessLine.addEventListener("change", (event) => {
     renderCurrentNodeOptions(event.target.value, defaultNodeForStatus(elements.formStatus.value, event.target.value));
+  });
+
+  window.addEventListener("focus", () => {
+    void refreshRemoteStateIfNeeded();
+  });
+
+  window.addEventListener("pageshow", (event) => {
+    void refreshRemoteStateIfNeeded(Boolean(event.persisted));
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void refreshRemoteStateIfNeeded();
+    }
   });
 }
 

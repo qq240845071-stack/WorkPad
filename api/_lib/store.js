@@ -19,6 +19,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function deploymentVersion() {
+  return String(process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_URL || process.env.NODE_ENV || "local").trim();
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -278,6 +282,205 @@ function normalizePushLogs(pushLogs) {
   });
 }
 
+const REMINDER_STATUS_RANK = {
+  pending: 1,
+  failed: 2,
+  sending: 3,
+  sent: 4,
+  completed: 5,
+  cancelled: 6,
+};
+
+function reminderMatchKey(reminder = {}) {
+  return [
+    textValue(reminder.person || reminder.reminderPerson),
+    textValue(reminder.date || reminder.reminderDate),
+    textValue(reminder.note || reminder.nextAction),
+  ].join("||");
+}
+
+function reminderStatusRank(reminder = {}) {
+  const status = textValue(reminder.status);
+  if (REMINDER_STATUS_RANK[status]) return REMINDER_STATUS_RANK[status];
+  if (textValue(reminder.completedAt)) return REMINDER_STATUS_RANK.completed;
+  if (textValue(reminder.sentAt)) return REMINDER_STATUS_RANK.sent;
+  if (textValue(reminder.dispatchToken)) return REMINDER_STATUS_RANK.sending;
+  if (textValue(reminder.lastError) || Number(reminder.attempts || 0) > 0) return REMINDER_STATUS_RANK.failed;
+  return REMINDER_STATUS_RANK.pending;
+}
+
+function shouldPreferPreviousReminder(previous, next) {
+  const previousRank = reminderStatusRank(previous);
+  const nextRank = reminderStatusRank(next);
+  if (previousRank !== nextRank) return previousRank > nextRank;
+  if (Number(previous.attempts || 0) !== Number(next.attempts || 0)) {
+    return Number(previous.attempts || 0) > Number(next.attempts || 0);
+  }
+  return (
+    (textValue(previous.sentAt) && !textValue(next.sentAt))
+    || (textValue(previous.completedAt) && !textValue(next.completedAt))
+    || (textValue(previous.lastAttemptAt) && !textValue(next.lastAttemptAt))
+    || (textValue(previous.confirmationToken) && !textValue(next.confirmationToken))
+  );
+}
+
+function mergeReminderRuntimeFields(previous, next) {
+  if (!previous) return next;
+  const merged = { ...next };
+  const preservePrevious = shouldPreferPreviousReminder(previous, next);
+  if (!textValue(merged.id) || preservePrevious) merged.id = textValue(previous.id || merged.id);
+  if (preservePrevious) {
+    merged.status = previous.status;
+    merged.pending = previous.pending;
+  } else if (merged.pending === undefined && previous.pending !== undefined) {
+    merged.pending = previous.pending;
+  }
+  [
+    "createdAt",
+    "sentAt",
+    "lastAttemptAt",
+    "lastError",
+    "dispatchToken",
+    "confirmationToken",
+    "confirmationUrl",
+    "completedAt",
+    "completedBy",
+    "completionNote",
+    "receiptStatus",
+    "receiptTarget",
+    "receiptRequestedAt",
+    "receiptSentAt",
+    "receiptError",
+    "updatedAt",
+    "updatedBy",
+  ].forEach((field) => {
+    if ((preservePrevious || !textValue(merged[field])) && textValue(previous[field])) {
+      merged[field] = previous[field];
+    }
+  });
+  if (preservePrevious || Number(merged.attempts || 0) < Number(previous.attempts || 0)) {
+    merged.attempts = Number(previous.attempts || 0);
+  }
+  if (merged.confirmable === undefined && previous.confirmable !== undefined) {
+    merged.confirmable = previous.confirmable;
+  }
+  return merged;
+}
+
+function createReminderLookup(reminders = []) {
+  const byId = new Map();
+  const byKey = new Map();
+  reminders.forEach((reminder) => {
+    if (textValue(reminder.id)) byId.set(reminder.id, reminder);
+    const key = reminderMatchKey(reminder);
+    if (key && !byKey.has(key)) byKey.set(key, reminder);
+  });
+  return { byId, byKey };
+}
+
+function reminderStableKey(reminder = {}) {
+  return textValue(reminder.id) || reminderMatchKey(reminder);
+}
+
+function mergeReminderCollections(nextReminders = [], previousReminders = []) {
+  const previousLookup = createReminderLookup(previousReminders);
+  const consumed = new Set();
+  const merged = nextReminders.map((reminder) => {
+    const previous = previousLookup.byId.get(reminder.id) || previousLookup.byKey.get(reminderMatchKey(reminder));
+    if (previous) consumed.add(reminderStableKey(previous));
+    return mergeReminderRuntimeFields(previous, reminder);
+  });
+  previousReminders.forEach((reminder) => {
+    const stableKey = reminderStableKey(reminder);
+    if (!stableKey || consumed.has(stableKey)) return;
+    if (merged.some((item) => reminderStableKey(item) === stableKey)) return;
+    merged.push(reminder);
+  });
+  return merged;
+}
+
+function pushLogStableKey(log = {}) {
+  return [
+    textValue(log.id),
+    textValue(log.confirmationToken),
+    textValue(log.receiverUserId),
+    textValue(log.pushedAt),
+    textValue(log.source),
+    textValue(log.content),
+  ].find(Boolean) || "";
+}
+
+function mergePushLogEntry(previous, next) {
+  if (!previous) return next;
+  const merged = { ...previous, ...next };
+  [
+    "error",
+    "confirmationToken",
+    "confirmationUrl",
+    "completionStatus",
+    "completedAt",
+    "completedBy",
+    "completionNote",
+    "reminderId",
+    "reminderScope",
+    "projectCode",
+    "projectTitle",
+  ].forEach((field) => {
+    if (!textValue(merged[field]) && textValue(previous[field])) merged[field] = previous[field];
+  });
+  if (!merged.confirmable && previous.confirmable) merged.confirmable = true;
+  if (!merged.success && previous.success) merged.success = true;
+  return merged;
+}
+
+function mergePushLogs(nextLogs = [], previousLogs = []) {
+  const byKey = new Map();
+  previousLogs.forEach((log) => {
+    const key = pushLogStableKey(log);
+    if (key) byKey.set(key, log);
+  });
+  nextLogs.forEach((log) => {
+    const key = pushLogStableKey(log);
+    if (!key) return;
+    byKey.set(key, mergePushLogEntry(byKey.get(key), log));
+  });
+  return normalizePushLogs(Array.from(byKey.values()))
+    .sort((left, right) => String(right.pushedAt).localeCompare(String(left.pushedAt)))
+    .slice(0, 500);
+}
+
+function mergeIncomingStateWithStoredState(nextState, previousState) {
+  const previousProjects = Array.isArray(previousState.projects) ? previousState.projects : [];
+  const byProjectId = new Map(previousProjects.map((project) => [project.id, project]));
+  const byProjectCode = new Map(previousProjects.map((project) => [project.code, project]));
+  const projects = (Array.isArray(nextState.projects) ? nextState.projects : []).map((project) => {
+    const previous = byProjectId.get(project.id) || byProjectCode.get(project.code);
+    if (!previous) return project;
+    const mergedReminders = mergeReminderCollections(
+      normalizeProjectReminders(project),
+      normalizeProjectReminders(previous),
+    );
+    return syncProjectReminderFields({
+      ...project,
+      reminders: mergedReminders,
+    });
+  });
+  const publicReminders = normalizePublicReminders(mergeReminderCollections(
+    normalizePublicReminders(nextState.publicReminders),
+    normalizePublicReminders(previousState.publicReminders),
+  ));
+  const pushLogs = mergePushLogs(
+    normalizePushLogs(nextState.pushLogs),
+    normalizePushLogs(previousState.pushLogs),
+  );
+  return {
+    ...nextState,
+    projects,
+    publicReminders,
+    pushLogs,
+  };
+}
+
 function normalizeState(rawState) {
   const seed = createDefaultState();
   const state = rawState && typeof rawState === "object" ? rawState : {};
@@ -292,6 +495,8 @@ function normalizeState(rawState) {
   });
   return {
     version: 2,
+    stateRevision: Math.max(1, Number(state.stateRevision) || 1),
+    stateUpdatedAt: String(state.stateUpdatedAt || ""),
     authPolicyVersion: String(state.authPolicyVersion || ""),
     projects: normalizedProjects,
     teamMembers,
@@ -367,23 +572,32 @@ async function readStoredState() {
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     const raw = await readBlobText();
     if (!raw) {
-      const seed = createDefaultState();
+      const seed = normalizeState({
+        ...createDefaultState(),
+        stateRevision: 1,
+        stateUpdatedAt: nowIso(),
+      });
       await writeBlobText(JSON.stringify(seed, null, 2));
       return {
         state: seed,
         meta: {
           storageMode: "vercel-blob",
           persistence: "persistent",
-          updatedAt: nowIso(),
+          updatedAt: seed.stateUpdatedAt,
+          stateRevision: seed.stateRevision,
+          deploymentVersion: deploymentVersion(),
         },
       };
     }
+    const normalized = normalizeState(JSON.parse(raw));
     return {
-      state: normalizeState(JSON.parse(raw)),
+      state: normalized,
       meta: {
         storageMode: "vercel-blob",
         persistence: "persistent",
-        updatedAt: nowIso(),
+        updatedAt: normalized.stateUpdatedAt || nowIso(),
+        stateRevision: normalized.stateRevision,
+        deploymentVersion: deploymentVersion(),
       },
     };
   }
@@ -391,21 +605,40 @@ async function readStoredState() {
   const { storageMode, persistence, filePath } = resolveLocalFile();
   const raw = await readLocalFile(filePath);
   if (!raw) {
-    const seed = createDefaultState();
+    const seed = normalizeState({
+      ...createDefaultState(),
+      stateRevision: 1,
+      stateUpdatedAt: nowIso(),
+    });
     await writeLocalFile(filePath, JSON.stringify(seed, null, 2));
     return {
       state: seed,
-      meta: { storageMode, persistence, updatedAt: nowIso() },
+      meta: {
+        storageMode,
+        persistence,
+        updatedAt: seed.stateUpdatedAt,
+        stateRevision: seed.stateRevision,
+        deploymentVersion: deploymentVersion(),
+      },
     };
   }
+  const normalized = normalizeState(JSON.parse(raw));
   return {
-    state: normalizeState(JSON.parse(raw)),
-    meta: { storageMode, persistence, updatedAt: nowIso() },
+    state: normalized,
+    meta: {
+      storageMode,
+      persistence,
+      updatedAt: normalized.stateUpdatedAt || nowIso(),
+      stateRevision: normalized.stateRevision,
+      deploymentVersion: deploymentVersion(),
+    },
   };
 }
 
 async function writeStoredState(nextState) {
   const normalized = normalizeState(clone(nextState));
+  normalized.stateRevision = Math.max(1, Number(nextState?.stateRevision || 0) + 1);
+  normalized.stateUpdatedAt = nowIso();
   const content = JSON.stringify(normalized, null, 2);
 
   if (process.env.BLOB_READ_WRITE_TOKEN) {
@@ -415,7 +648,9 @@ async function writeStoredState(nextState) {
       meta: {
         storageMode: "vercel-blob",
         persistence: "persistent",
-        updatedAt: nowIso(),
+        updatedAt: normalized.stateUpdatedAt,
+        stateRevision: normalized.stateRevision,
+        deploymentVersion: deploymentVersion(),
       },
     };
   }
@@ -424,7 +659,13 @@ async function writeStoredState(nextState) {
   await writeLocalFile(filePath, content);
   return {
     state: normalized,
-    meta: { storageMode, persistence, updatedAt: nowIso() },
+    meta: {
+      storageMode,
+      persistence,
+      updatedAt: normalized.stateUpdatedAt,
+      stateRevision: normalized.stateRevision,
+      deploymentVersion: deploymentVersion(),
+    },
   };
 }
 
@@ -433,6 +674,7 @@ async function resetStoredState() {
 }
 
 module.exports = {
+  mergeIncomingStateWithStoredState,
   readStoredState,
   writeStoredState,
   resetStoredState,
