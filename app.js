@@ -17,44 +17,12 @@ const STATUS_ORDER = [
 
 const NODE_ORDER = ["作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", "尾印单"];
 const DEFAULT_BUSINESS_LINE_ID = "line-publishing";
-const DEFAULT_INITIAL_PASSWORD = "111111";
-
-const NAME_PINYIN_OVERRIDES = {
-  周雯: "zhouwen",
-  许畅: "xuchang",
-  王黎: "wangli",
-  刘珂: "liuke",
-  陈敏: "chenmin",
-  孙妍: "sunyan",
-  贾涛: "jiatao",
-  张莹: "zhangying",
-  王勇: "wangyong",
-  周丽梅: "zhoulimei",
-  周立梅: "zhoulimei",
-};
-
-const HAN_PINYIN = {
-  陈: "chen",
-  畅: "chang",
-  贾: "jia",
-  珂: "ke",
-  黎: "li",
-  丽: "li",
-  立: "li",
-  刘: "liu",
-  梅: "mei",
-  敏: "min",
-  孙: "sun",
-  涛: "tao",
-  王: "wang",
-  雯: "wen",
-  许: "xu",
-  妍: "yan",
-  勇: "yong",
-  张: "zhang",
-  周: "zhou",
-  莹: "ying",
-};
+const {
+  DEFAULT_INITIAL_PASSWORD = "111111",
+  normalizeUsername,
+  previewUsernameForMember,
+  withGeneratedUsernames,
+} = window.WorkpadUsername || {};
 
 const STATUS_META = {
   待启动: { tone: "#8d6e46", description: "尚未正式进入执行节奏" },
@@ -311,6 +279,7 @@ const state = {
   authUser: null,
   authReady: false,
   authPending: false,
+  adminFormPending: false,
   wecomScanLoginAvailable: false,
 };
 
@@ -409,29 +378,8 @@ function textValue(value) {
   return String(value ?? "").trim();
 }
 
-function normalizeUsername(value) {
-  return textValue(value).toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 32);
-}
-
-function usernameFromName(name, fallback = "") {
-  const raw = textValue(name).replace(/[·\s。,.，、_-]+/g, "");
-  if (NAME_PINYIN_OVERRIDES[raw]) return NAME_PINYIN_OVERRIDES[raw];
-  const converted = Array.from(raw).map((char) => {
-    if (/^[a-z0-9]$/i.test(char)) return char.toLowerCase();
-    return HAN_PINYIN[char] || "";
-  }).join("");
-  return normalizeUsername(converted) || normalizeUsername(fallback);
-}
-
 function uniqueUsernameForName(name, currentId = "") {
-  const base = usernameFromName(name) || "user";
-  let candidate = base;
-  let suffix = 2;
-  while (state.teamMembers.some((member) => member.id !== currentId && normalizeUsername(member.username) === candidate)) {
-    candidate = `${base}${suffix}`;
-    suffix += 1;
-  }
-  return candidate;
+  return previewUsernameForMember(state.teamMembers, { name }, currentId);
 }
 
 function sortZh(values) {
@@ -722,19 +670,17 @@ function allWorkflowNodes() {
 }
 
 function normalizeTeamMembers(members) {
-  return (Array.isArray(members) ? members : []).map((member) => {
+  const normalized = (Array.isArray(members) ? members : []).map((member) => {
     const fallback = TEAM_MEMBERS.find((item) => item.id === member.id || item.name === member.name) || {};
-    const index = (Array.isArray(members) ? members : []).indexOf(member);
-    const fallbackUsername = usernameFromName(member.name || fallback.name, String(member.id || fallback.id || `user${index + 1}`).replace(/^user-/, ""));
     return {
       ...fallback,
       ...member,
-      username: fallbackUsername || String(member.username || fallback.username || "").trim(),
       wecomUserId: member.wecomUserId ?? fallback.wecomUserId ?? "",
       passwordReady: Boolean(member.passwordReady),
       passwordResetRequired: Boolean(member.passwordResetRequired),
     };
   });
+  return withGeneratedUsernames(normalized);
 }
 
 function wecomBindingBadge(member) {
@@ -4893,11 +4839,16 @@ function attachEvents() {
   elements.adminModalContent.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (event.target.id === "adminUserForm") {
+      if (state.adminFormPending) return;
       if (!hasPermission("管理人员")) return;
-      const formData = new FormData(event.target);
-      const existing = state.teamMembers.find((item) => item.id === state.adminEditingId);
-      const nextName = String(formData.get("name") || "").trim();
-      const nextUsername = uniqueUsernameForName(nextName, existing?.id || "");
+      state.adminFormPending = true;
+      const submitButton = event.target.querySelector("button[type='submit']");
+      if (submitButton) submitButton.disabled = true;
+      try {
+        const formData = new FormData(event.target);
+        const existing = state.teamMembers.find((item) => item.id === state.adminEditingId);
+        const nextName = String(formData.get("name") || "").trim();
+        const nextUsername = uniqueUsernameForName(nextName, existing?.id || "");
         const nextRole = String(formData.get("role") || "").trim();
         const nextDepartment = String(formData.get("department") || "").trim();
         const nextWecomUserId = String(formData.get("wecomUserId") || "").trim();
@@ -4911,23 +4862,46 @@ function attachEvents() {
           window.alert("这个登录用户名已经存在。");
           return;
         }
+        const isNewMember = !existing;
+        let savedMemberId = existing?.id || "";
         if (existing) {
           if (existing.name !== nextName) renameMemberAcrossProjects(existing.name, nextName);
           existing.name = nextName;
-        existing.username = nextUsername;
-        existing.role = nextRole;
-        existing.department = nextDepartment;
-        existing.wecomUserId = nextWecomUserId;
+          existing.username = nextUsername;
+          existing.role = nextRole;
+          existing.department = nextDepartment;
+          existing.wecomUserId = nextWecomUserId;
         } else {
-          state.teamMembers.push({ id: uid(), name: nextName, username: nextUsername, role: nextRole, department: nextDepartment, wecomUserId: nextWecomUserId, passwordReady: false });
+          const newMember = {
+            id: uid(),
+            name: nextName,
+            username: nextUsername,
+            role: nextRole,
+            department: nextDepartment,
+            wecomUserId: nextWecomUserId,
+            passwordReady: true,
+            passwordResetRequired: true,
+          };
+          savedMemberId = newMember.id;
+          state.teamMembers.push(newMember);
         }
+        state.teamMembers = normalizeTeamMembers(state.teamMembers);
         state.departments = normalizeDepartments(state.departments, state.teamMembers);
         saveSettings();
         await flushRemoteSync();
+        await hydrateRemoteState();
+        const savedMember = state.teamMembers.find((member) => member.id === savedMemberId);
         closeAdminModal();
         render();
+        if (isNewMember && savedMember) {
+          window.alert(`已新增人员。\n姓名：${savedMember.name}\n用户名：${savedMember.username}\n默认登录密码：${DEFAULT_INITIAL_PASSWORD}\n现在可以直接使用这组账号密码登录。`);
+        }
+      } finally {
+        state.adminFormPending = false;
+        if (submitButton && document.body.contains(submitButton)) submitButton.disabled = false;
       }
-      if (event.target.id === "adminDepartmentForm") {
+    }
+    if (event.target.id === "adminDepartmentForm") {
         if (!hasPermission("管理人员")) return;
         const formData = new FormData(event.target);
         const previousName = String(state.adminEditingId || "");
