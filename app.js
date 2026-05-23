@@ -2108,7 +2108,7 @@ function defaultAiSettings() {
     chat: { label: "对话", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
     risk: { label: "风险评估", providerName: "云雾 DeepSeek V4 Flash", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-flash", configured: false },
     vision: { label: "图片识别", providerName: "云雾 Qwen3 VL Flash", baseUrl: "https://yunwu.ai/v1", model: "qwen3-vl-flash", configured: false },
-    command: { label: "自然语言指令", providerName: "云雾 DeepSeek V4 Pro", baseUrl: "https://yunwu.ai/v1", model: "deepseek-v4-pro", configured: false },
+    command: { label: "自然语言指令", providerName: "云雾 Gemini 3 Flash Preview", baseUrl: "https://yunwu.ai/v1", model: "gemini-3-flash-preview", configured: false },
     transcription: { label: "语音转文字", providerName: "云雾 Whisper（腾讯云 ASR 优先）", baseUrl: "https://yunwu.ai/v1", model: "whisper-1", configured: false },
   };
 }

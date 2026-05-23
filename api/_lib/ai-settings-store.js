@@ -3,9 +3,9 @@ const os = require("node:os");
 const path = require("node:path");
 
 const BLOB_PATHNAME = "workpad/ai-settings.json";
-const LEGACY_COMMAND_MODEL = "deepseek-v4-flash";
-const COMMAND_MODEL = "deepseek-v4-pro";
-const COMMAND_PROVIDER_NAME = "云雾 DeepSeek V4 Pro";
+const LEGACY_COMMAND_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
+const COMMAND_MODEL = "gemini-3-flash-preview";
+const COMMAND_PROVIDER_NAME = "云雾 Gemini 3 Flash Preview";
 
 const DEFAULT_AI_SETTINGS = {
   chat: {
@@ -53,7 +53,7 @@ function normalizeTaskConfig(task, value) {
   const config = value && typeof value === "object" ? value : {};
   let providerName = String(config.providerName || defaults.providerName).trim();
   let model = String(config.model || defaults.model).trim();
-  if (task === "command" && model === LEGACY_COMMAND_MODEL) {
+  if (task === "command" && LEGACY_COMMAND_MODELS.has(model)) {
     providerName = COMMAND_PROVIDER_NAME;
     model = COMMAND_MODEL;
   }
