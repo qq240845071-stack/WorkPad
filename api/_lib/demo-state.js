@@ -11,7 +11,9 @@ const STATUS_ORDER = [
   "已暂停",
 ];
 
-const NODE_ORDER = ["作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", "尾印单"];
+const START_NODE_NAME = "启动";
+const TAIL_NODE_NAME = "尾印单";
+const NODE_ORDER = [START_NODE_NAME, "作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", TAIL_NODE_NAME];
 const DEFAULT_BUSINESS_LINE_ID = "line-publishing";
 
 const TEAM_MEMBERS = [
@@ -43,6 +45,7 @@ const ROLE_PERMISSION_ROWS = [
 ];
 
 const WORKFLOW_CONFIG = [
+  { id: "node-start", name: START_NODE_NAME, ownerRole: "编辑", reminderRole: "项目主管", cycle: 1 },
   { id: "node-author", name: "作者沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
   { id: "node-layout", name: "排版", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
   { id: "node-proof-1", name: "一校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
@@ -98,12 +101,14 @@ const DEFAULT_BUSINESS_LINES = [
       qualityStandard: "质检时核对尺寸、分辨率、出血、字体版权、图片授权和最终交付文件完整性。",
     },
     nodes: [
+      { id: "design-start", name: START_NODE_NAME, ownerRole: "编辑", reminderRole: "项目主管", cycle: 1 },
       { id: "design-brief", name: "需求沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
       { id: "design-style", name: "风格确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
       { id: "design-draft", name: "初稿设计", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
       { id: "design-revision", name: "修改确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 3 },
       { id: "design-final", name: "定稿输出", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
       { id: "design-archive", name: "交付归档", ownerRole: "协同支持", reminderRole: "编辑", cycle: 1 },
+      { id: "design-tail", name: TAIL_NODE_NAME, ownerRole: "协同支持", reminderRole: "编辑", cycle: 1 },
     ],
   },
   {
@@ -122,6 +127,7 @@ const DEFAULT_BUSINESS_LINES = [
       qualityStandard: "质检时核对尺寸、白边、比例、色差、胶装缺胶、包装数量和送货清单。",
     },
     nodes: [
+      { id: "production-start", name: START_NODE_NAME, ownerRole: "项目主管", reminderRole: "协同支持", cycle: 1 },
       { id: "production-order", name: "工单确认", ownerRole: "项目主管", reminderRole: "协同支持", cycle: 1 },
       { id: "production-material", name: "材料准备", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
       { id: "production-prepress", name: "印前检查", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
@@ -129,6 +135,7 @@ const DEFAULT_BUSINESS_LINES = [
       { id: "production-qc", name: "质检", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
       { id: "production-pack", name: "包装入库", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 1 },
       { id: "production-ship", name: "发货交付", ownerRole: "协同支持", reminderRole: "编辑", cycle: 2 },
+      { id: "production-tail", name: TAIL_NODE_NAME, ownerRole: "协同支持", reminderRole: "编辑", cycle: 1 },
     ],
   },
 ];
@@ -149,7 +156,7 @@ const PROJECT_BLUEPRINTS = [
   ["BK-2026-001", "江南旧影：近代书店档案选", "林书远", "周雯", "华墨文化", "排版校稿中", "二校", -42, 6, -27, "回收作者二校眉批并锁定三校排期", "作者回稿比计划晚 4 天，本周必须完成三校准备。", "夏季档重点人文书，目录已经稳定，正文需要统一脚注样式。", "周雯", 1],
   ["BK-2026-002", "儿童科学手帐：宇宙卷", "陈予安", "许畅", "星图少儿", "样书处理中", "样书", -35, 3, -11, "确认样书封面覆膜和专色效果", "样书工艺还没最终确认，离计划交付只剩 3 天。", "少儿彩图项目，封面工艺是当前最关键风险点。", "许畅", 0],
   ["BK-2026-003", "城市植物观察笔记", "顾澄", "王黎", "四时阅读", "作者沟通中", "作者沟通", -16, 16, -61, "确认增补章节素材版权归属", "作者补图还未齐，资料收集稍慢。", "图文生活方式书，资料细节多，适合提前把素材和授权盯住。", "王黎", 2],
-  ["BK-2026-004", "版式训练课：编辑内部手册", "编辑中心", "刘珂", "自有项目", "待启动", "作者沟通", -4, 24, -5, "补充内部培训提纲并确认首批章节分工", "项目刚立项，信息还不完整，需要尽快定目录。", "内部培训资料，适合拿来测试待启动到执行的流程衔接。", "刘珂", 3],
+  ["BK-2026-004", "版式训练课：编辑内部手册", "编辑中心", "刘珂", "自有项目", "待启动", START_NODE_NAME, -4, 24, -5, "补充内部培训提纲并确认首批章节分工", "项目刚立项，信息还不完整，需要尽快定目录。", "内部培训资料，适合拿来测试待启动到执行的流程衔接。", "刘珂", 3],
   ["BK-2026-005", "古籍里的日常器物", "沈见秋", "周雯", "华墨文化", "合同处理中", "合同", -57, -2, -208, "催法务确认补充条款并回传盖章版", "合同仍未回签，项目整体已经超计划 2 天。", "书已接近成品，当前主要风险不是制作，而是合同迟迟未闭环。", "陈敏", 0, "合同"],
   ["BK-2026-006", "新编辑实务 100 问", "赵浅", "许畅", "书田学院", "送货处理中", "送货", -63, 4, -19, "确认首批到仓签收与缺件回执", "物流正常，但需要盯住分仓签收反馈。", "首批已经出库，当前关注的是送货回执和分仓交接。", "孙妍", 2],
   ["BK-2026-007", "中国书店招牌史", "乔以宁", "王黎", "旧闻书局", "成品制作中", "成品", -49, 9, -73, "确认印厂成品批次与包装清单", "印厂反馈两种纸张库存紧张，需要盯交期。", "图录项目，印制质量要求高，适合在成品阶段单独高亮。", "王黎", 1],
@@ -204,7 +211,7 @@ function businessLineName(businessLineId = DEFAULT_BUSINESS_LINE_ID) {
 function buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode, businessLineId = DEFAULT_BUSINESS_LINE_ID) {
   const workflowNodes = workflowNodesForBusinessLine(businessLineId);
   const currentIndex = Math.max(0, workflowNodes.findIndex((node) => node.name === currentNode));
-  let dayCursor = 3;
+  let dayCursor = 0;
   return workflowNodes.map((workflowNode, index) => {
     const name = workflowNode.name;
     const planned = addDays(startDate, dayCursor);

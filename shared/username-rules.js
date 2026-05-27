@@ -17,6 +17,7 @@
     王勇: "wangyong",
     周丽梅: "zhoulimei",
     周立梅: "zhoulimei",
+    杨金妹: "yangjinmei",
     温泉: "wenquan",
     王百万: "wangbaiwan",
   };
@@ -40,13 +41,20 @@
     泉: "quan",
     许: "xu",
     妍: "yan",
+    杨: "yang",
     勇: "yong",
     张: "zhang",
+    金: "jin",
     周: "zhou",
     百: "bai",
+    妹: "mei",
     莹: "ying",
     万: "wan",
   };
+
+  function isDraftIdentifier(value) {
+    return /^__.+__$/.test(textValue(value));
+  }
 
   function textValue(value) {
     return String(value ?? "").trim();
@@ -70,7 +78,7 @@
     const generated = usernameFromName(member.name);
     if (generated) return generated;
     const id = textValue(member.id).replace(/^user-/, "");
-    if (/^[a-z0-9._-]{2,}$/i.test(id)) return id.toLowerCase();
+    if (!isDraftIdentifier(id) && /^[a-z0-9._-]{2,}$/i.test(id)) return id.toLowerCase();
     return `user${index + 1}`;
   }
 

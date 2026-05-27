@@ -51,7 +51,7 @@
         </div>
 
         <div class="hero-actions">
-          <div class="app-version">WorkPad v2026-05-23</div>
+          <div class="app-version">WorkPad v2026-05-28</div>
           <div class="segmented" id="viewToggle">
             <button type="button" class="segmented-item is-active" data-view="board">业务看板</button>
             <button type="button" class="segmented-item" data-view="admin">管理后台</button>
@@ -129,6 +129,18 @@
               回到看板
             </button>
           </div>
+        </section>
+
+        <section class="board-stage admin-stage front-workspace-stage" id="frontWorkspaceStage">
+          <div class="board-head">
+            <div>
+              <p class="section-kicker">前台直达</p>
+              <h2>提醒、推送和合作商操作</h2>
+            </div>
+            <p class="board-meta" id="frontWorkspaceMeta">--</p>
+          </div>
+          <div class="admin-nav" id="frontWorkspaceNav"></div>
+          <div id="frontWorkspaceContent"></div>
         </section>
 
         <section class="filter-panel">
@@ -352,6 +364,28 @@
           </button>
         </div>
         <div id="adminModalContent"></div>
+      </div>
+    </div>
+
+    <div class="modal" id="processCardModal" aria-hidden="true">
+      <div class="modal-backdrop" id="processCardModalBackdrop"></div>
+      <div class="modal-panel modal-panel-process">
+        <div class="modal-head">
+          <div>
+            <p class="section-kicker">工艺卡速览</p>
+            <h2 id="processCardModalTitle">产品工艺卡</h2>
+            <p class="board-meta process-card-modal-meta" id="processCardModalMeta">--</p>
+          </div>
+          <button
+            type="button"
+            class="drawer-close"
+            id="processCardModalCloseButton"
+            aria-label="关闭工艺卡"
+          >
+            ×
+          </button>
+        </div>
+        <div id="processCardModalContent"></div>
       </div>
     </div>
 

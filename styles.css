@@ -590,6 +590,29 @@ body::before {
   margin-top: 18px;
 }
 
+.workflow-config-toolbar-compact {
+  grid-template-columns: minmax(220px, 0.9fr) minmax(260px, 1.2fr);
+  align-items: end;
+}
+
+.table-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.workflow-panel-note {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+}
+
+.workflow-risk-switch {
+  min-height: 48px;
+}
+
 .public-reminder-form {
   grid-template-columns: minmax(160px, 0.8fr) minmax(190px, 0.9fr) minmax(260px, 1.4fr) minmax(190px, 0.9fr) auto;
   align-items: end;
@@ -806,6 +829,22 @@ body::before {
   transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
+.project-card-surface {
+  display: grid;
+  gap: 12px;
+}
+
+.project-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.project-card-action-button {
+  width: auto;
+  min-width: 88px;
+  padding: 8px 14px;
+}
+
 .person-card {
   display: grid;
   gap: 14px;
@@ -861,7 +900,7 @@ body::before {
   box-shadow: 0 18px 28px rgba(31, 36, 48, 0.12);
 }
 
-.project-card button {
+.project-card-body {
   width: 100%;
   padding: 0;
   text-align: left;
@@ -869,12 +908,39 @@ body::before {
   border: 0;
   cursor: pointer;
   color: inherit;
+  display: grid;
+  gap: 14px;
 }
 
 .project-title {
   margin: 0;
   font-size: 18px;
   line-height: 1.4;
+}
+
+.project-card-reminder-preview {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(105, 116, 67, 0.14);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.project-card-reminder-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.project-card-reminder-text {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.7;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .project-author {
@@ -1740,6 +1806,10 @@ th {
   width: min(980px, calc(100vw - 32px));
 }
 
+.modal-panel-process {
+  width: min(920px, calc(100vw - 32px));
+}
+
 .project-form {
   display: grid;
   gap: 18px;
@@ -1757,6 +1827,36 @@ th {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.process-card-modal-meta {
+  margin-top: 10px;
+}
+
+.process-card-modal-summary {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.process-card-modal-reminder {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(105, 116, 67, 0.16);
+  background: rgba(255, 250, 241, 0.78);
+}
+
+.process-card-modal-reminder span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.process-card-modal-reminder strong {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--ink);
 }
 
 .data-panel-stack {

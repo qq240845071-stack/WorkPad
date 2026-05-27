@@ -14,6 +14,8 @@ const {
 const { normalizeProjectReminders, normalizePublicReminders, syncProjectReminderFields } = require("./reminders");
 
 const BLOB_PATHNAME = "workpad/state.json";
+const START_NODE_NAME = "启动";
+const TAIL_NODE_NAME = "尾印单";
 
 function nowIso() {
   return new Date().toISOString();
@@ -143,9 +145,27 @@ function normalizeWorkflowNode(node, index = 0) {
   };
 }
 
+function workflowSystemNodeTemplate(name) {
+  if (name === START_NODE_NAME) {
+    return { id: "node-start", name: START_NODE_NAME, ownerRole: "编辑", reminderRole: "项目主管", cycle: 1 };
+  }
+  return { id: "node-tail-print", name: TAIL_NODE_NAME, ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 };
+}
+
+function ensureConfigurableWorkflowNodes(nodes = []) {
+  const normalized = (Array.isArray(nodes) ? nodes : []).map(normalizeWorkflowNode).filter((node) => node.name);
+  const byName = new Map(normalized.map((node) => [node.name, node]));
+  const middleNodes = normalized.filter((node) => ![START_NODE_NAME, TAIL_NODE_NAME].includes(node.name));
+  return [
+    normalizeWorkflowNode({ ...workflowSystemNodeTemplate(START_NODE_NAME), ...(byName.get(START_NODE_NAME) || {}) }, 0),
+    ...middleNodes,
+    normalizeWorkflowNode({ ...workflowSystemNodeTemplate(TAIL_NODE_NAME), ...(byName.get(TAIL_NODE_NAME) || {}) }, middleNodes.length + 1),
+  ];
+}
+
 function normalizeWorkflowNodes(nodes) {
   const normalized = (Array.isArray(nodes) ? nodes : []).map(normalizeWorkflowNode).filter((node) => node.name);
-  return normalized.length ? normalized : DEFAULT_BUSINESS_LINES[0].nodes.map(normalizeWorkflowNode);
+  return ensureConfigurableWorkflowNodes(normalized.length ? normalized : DEFAULT_BUSINESS_LINES[0].nodes.map(normalizeWorkflowNode));
 }
 
 const PROCESS_FIELD_TYPES = new Set(["text", "textarea", "select", "checkbox"]);
@@ -220,8 +240,37 @@ function normalizeReminderDate(value, fallback) {
   return raw;
 }
 
+function projectTimestamp(value) {
+  const raw = textValue(value);
+  if (!raw) return 0;
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(raw) ? raw.replace(" ", "T") : raw;
+  const parsed = new Date(normalized).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function dedupeProjectsByCode(projects = []) {
+  const byKey = new Map();
+  const fallback = [];
+  (Array.isArray(projects) ? projects : []).forEach((project) => {
+    const key = textValue(project.code || project.id);
+    if (!key) {
+      fallback.push(project);
+      return;
+    }
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, project);
+      return;
+    }
+    const nextTimestamp = Math.max(projectTimestamp(project.updatedAt), projectTimestamp(project.createdAt));
+    const existingTimestamp = Math.max(projectTimestamp(existing.updatedAt), projectTimestamp(existing.createdAt));
+    byKey.set(key, nextTimestamp >= existingTimestamp ? project : existing);
+  });
+  return [...byKey.values(), ...fallback];
+}
+
 function normalizeProjects(projects) {
-  return projects.map((project) => {
+  const normalizedProjects = projects.map((project) => {
     const normalized = {
       ...project,
       businessLineId: project.businessLineId || DEFAULT_BUSINESS_LINE_ID,
@@ -251,6 +300,7 @@ function normalizeProjects(projects) {
     };
     return syncProjectReminderFields(normalized);
   });
+  return dedupeProjectsByCode(normalizedProjects);
 }
 
 function normalizePushLogs(pushLogs) {

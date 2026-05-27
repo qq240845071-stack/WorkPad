@@ -15,7 +15,9 @@ const STATUS_ORDER = [
   "已暂停",
 ];
 
-const NODE_ORDER = ["作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", "尾印单"];
+const START_NODE_NAME = "启动";
+const TAIL_NODE_NAME = "尾印单";
+const NODE_ORDER = [START_NODE_NAME, "作者沟通", "排版", "一校", "二校", "三校", "样书", "成品", "合同", "送货", TAIL_NODE_NAME];
 const DEFAULT_BUSINESS_LINE_ID = "line-publishing";
 const {
   DEFAULT_INITIAL_PASSWORD = "111111",
@@ -38,19 +40,20 @@ const STATUS_META = {
 };
 
 const STATUS_TO_NODE = {
-  待启动: "作者沟通",
+  待启动: START_NODE_NAME,
   作者沟通中: "作者沟通",
   排版校稿中: "一校",
   样书处理中: "样书",
   成品制作中: "成品",
   合同处理中: "合同",
   送货处理中: "送货",
-  尾印单处理中: "尾印单",
-  已完成: "尾印单",
+  尾印单处理中: TAIL_NODE_NAME,
+  已完成: TAIL_NODE_NAME,
   已暂停: "作者沟通",
 };
 
 const NODE_TO_STATUS = {
+  启动: "待启动",
   作者沟通: "作者沟通中",
   排版: "排版校稿中",
   一校: "排版校稿中",
@@ -92,6 +95,7 @@ const ROLE_PERMISSION_ROWS = [
 ];
 
 const WORKFLOW_CONFIG = [
+  { id: "node-start", name: START_NODE_NAME, ownerRole: "编辑", reminderRole: "项目主管", cycle: 1 },
   { id: "node-author", name: "作者沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
   { id: "node-layout", name: "排版", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
   { id: "node-proof-1", name: "一校", ownerRole: "编辑", reminderRole: "项目主管", cycle: 5 },
@@ -154,12 +158,14 @@ const DEFAULT_BUSINESS_LINES = [
       qualityStandard: "质检时核对尺寸、分辨率、出血、字体版权、图片授权和最终交付文件完整性。",
     },
     nodes: [
+      { id: "design-start", name: START_NODE_NAME, ownerRole: "编辑", reminderRole: "项目主管", cycle: 1 },
       { id: "design-brief", name: "需求沟通", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
       { id: "design-style", name: "风格确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 2 },
       { id: "design-draft", name: "初稿设计", ownerRole: "编辑", reminderRole: "项目主管", cycle: 4 },
       { id: "design-revision", name: "修改确认", ownerRole: "编辑", reminderRole: "项目主管", cycle: 3 },
       { id: "design-final", name: "定稿输出", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
       { id: "design-archive", name: "交付归档", ownerRole: "协同支持", reminderRole: "编辑", cycle: 1 },
+      { id: "design-tail", name: TAIL_NODE_NAME, ownerRole: "协同支持", reminderRole: "编辑", cycle: 1 },
     ],
   },
   {
@@ -178,6 +184,7 @@ const DEFAULT_BUSINESS_LINES = [
       qualityStandard: "质检时核对尺寸、白边、比例、色差、胶装缺胶、包装数量和送货清单。",
     },
     nodes: [
+      { id: "production-start", name: START_NODE_NAME, ownerRole: "项目主管", reminderRole: "协同支持", cycle: 1 },
       { id: "production-order", name: "工单确认", ownerRole: "项目主管", reminderRole: "协同支持", cycle: 1 },
       { id: "production-material", name: "材料准备", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
       { id: "production-prepress", name: "印前检查", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
@@ -185,6 +192,7 @@ const DEFAULT_BUSINESS_LINES = [
       { id: "production-qc", name: "质检", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 2 },
       { id: "production-pack", name: "包装入库", ownerRole: "协同支持", reminderRole: "项目主管", cycle: 1 },
       { id: "production-ship", name: "发货交付", ownerRole: "协同支持", reminderRole: "编辑", cycle: 2 },
+      { id: "production-tail", name: TAIL_NODE_NAME, ownerRole: "协同支持", reminderRole: "编辑", cycle: 1 },
     ],
   },
 ];
@@ -205,7 +213,7 @@ const PROJECT_BLUEPRINTS = [
   ["BK-2026-001", "江南旧影：近代书店档案选", "林书远", "周雯", "华墨文化", "排版校稿中", "二校", -42, 6, -27, "回收作者二校眉批并锁定三校排期", "作者回稿比计划晚 4 天，本周必须完成三校准备。", "夏季档重点人文书，目录已经稳定，正文需要统一脚注样式。", "周雯", 1],
   ["BK-2026-002", "儿童科学手帐：宇宙卷", "陈予安", "许畅", "星图少儿", "样书处理中", "样书", -35, 3, -11, "确认样书封面覆膜和专色效果", "样书工艺还没最终确认，离计划交付只剩 3 天。", "少儿彩图项目，封面工艺是当前最关键风险点。", "许畅", 0],
   ["BK-2026-003", "城市植物观察笔记", "顾澄", "王黎", "四时阅读", "作者沟通中", "作者沟通", -16, 16, -61, "确认增补章节素材版权归属", "作者补图还未齐，资料收集稍慢。", "图文生活方式书，资料细节多，适合提前把素材和授权盯住。", "王黎", 2],
-  ["BK-2026-004", "版式训练课：编辑内部手册", "编辑中心", "刘珂", "自有项目", "待启动", "作者沟通", -4, 24, -5, "补充内部培训提纲并确认首批章节分工", "项目刚立项，信息还不完整，需要尽快定目录。", "内部培训资料，适合拿来测试待启动到执行的流程衔接。", "刘珂", 3],
+  ["BK-2026-004", "版式训练课：编辑内部手册", "编辑中心", "刘珂", "自有项目", "待启动", START_NODE_NAME, -4, 24, -5, "补充内部培训提纲并确认首批章节分工", "项目刚立项，信息还不完整，需要尽快定目录。", "内部培训资料，适合拿来测试待启动到执行的流程衔接。", "刘珂", 3],
   ["BK-2026-005", "古籍里的日常器物", "沈见秋", "周雯", "华墨文化", "合同处理中", "合同", -57, -2, -208, "催法务确认补充条款并回传盖章版", "合同仍未回签，项目整体已经超计划 2 天。", "书已接近成品，当前主要风险不是制作，而是合同迟迟未闭环。", "陈敏", 0, "合同"],
   ["BK-2026-006", "新编辑实务 100 问", "赵浅", "许畅", "书田学院", "送货处理中", "送货", -63, 4, -19, "确认首批到仓签收与缺件回执", "物流正常，但需要盯住分仓签收反馈。", "首批已经出库，当前关注的是送货回执和分仓交接。", "孙妍", 2],
   ["BK-2026-007", "中国书店招牌史", "乔以宁", "王黎", "旧闻书局", "成品制作中", "成品", -49, 9, -73, "确认印厂成品批次与包装清单", "印厂反馈两种纸张库存紧张，需要盯交期。", "图录项目，印制质量要求高，适合在成品阶段单独高亮。", "王黎", 1],
@@ -219,18 +227,17 @@ const PROJECT_BLUEPRINTS = [
 const ROLE_KEY_MAP = Object.fromEntries(DEFAULT_ROLES.map((role) => [role.name, role.key]));
 
 const ADMIN_TAB_RULES = {
-  overview: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
-  ai: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
+  overview: ["管理人员", "管理权限", "管理流程节点"],
+  ai: ["管理人员", "管理权限", "管理流程节点"],
+  riskConfig: ["管理流程节点"],
   users: ["管理人员"],
   departments: ["管理人员"],
   roles: ["管理权限"],
   permissions: ["管理权限"],
-  partners: ["管理合作方"],
   businessLines: ["管理流程节点"],
+  workflowSettings: ["管理流程节点"],
   productCards: ["管理流程节点"],
   workflow: ["管理流程节点"],
-  reminders: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
-  pushLogs: ["管理人员", "管理权限", "管理合作方", "管理流程节点"],
 };
 
 const state = {
@@ -249,9 +256,11 @@ const state = {
   filters: { search: "", owner: "全部", status: "全部", risk: "全部", update: "全部", reminder: "全部" },
   reminderFilters: { tab: "all", person: "全部", keyword: "", sort: "timeDesc" },
   selectedProjectId: null,
+  processCardQuickProjectId: null,
   editingProjectId: null,
   currentView: "board",
   displayMode: "project",
+  frontWorkspaceTab: "reminders",
   currentUserId: TEAM_MEMBERS[0].id,
   adminTab: "overview",
   selectedWorkflowLineId: DEFAULT_BUSINESS_LINE_ID,
@@ -279,6 +288,7 @@ const state = {
   authUser: null,
   authReady: false,
   authPending: false,
+  projectFormPending: false,
   adminFormPending: false,
   wecomScanLoginAvailable: false,
 };
@@ -319,6 +329,10 @@ const elements = {
   urgentList: document.getElementById("urgentList"),
   boardGrid: document.getElementById("boardGrid"),
   boardMeta: document.getElementById("boardMeta"),
+  frontWorkspaceStage: document.getElementById("frontWorkspaceStage"),
+  frontWorkspaceNav: document.getElementById("frontWorkspaceNav"),
+  frontWorkspaceMeta: document.getElementById("frontWorkspaceMeta"),
+  frontWorkspaceContent: document.getElementById("frontWorkspaceContent"),
   personBoardSection: document.getElementById("personBoardSection"),
   personBoardGrid: document.getElementById("personBoardGrid"),
   personBoardMeta: document.getElementById("personBoardMeta"),
@@ -331,6 +345,12 @@ const elements = {
   drawerContent: document.getElementById("drawerContent"),
   drawerBackdrop: document.getElementById("drawerBackdrop"),
   drawerCloseButton: document.getElementById("drawerCloseButton"),
+  processCardModal: document.getElementById("processCardModal"),
+  processCardModalTitle: document.getElementById("processCardModalTitle"),
+  processCardModalMeta: document.getElementById("processCardModalMeta"),
+  processCardModalContent: document.getElementById("processCardModalContent"),
+  processCardModalBackdrop: document.getElementById("processCardModalBackdrop"),
+  processCardModalCloseButton: document.getElementById("processCardModalCloseButton"),
   projectModal: document.getElementById("projectModal"),
   modalBackdrop: document.getElementById("modalBackdrop"),
   modalCloseButton: document.getElementById("modalCloseButton"),
@@ -494,9 +514,31 @@ function normalizeWorkflowNode(node, index = 0) {
   };
 }
 
+function workflowSystemNodeTemplate(name) {
+  if (name === START_NODE_NAME) {
+    return { id: "node-start", name: START_NODE_NAME, ownerRole: "编辑", reminderRole: "项目主管", cycle: 1 };
+  }
+  return { id: "node-tail-print", name: TAIL_NODE_NAME, ownerRole: "协同支持", reminderRole: "编辑", cycle: 3 };
+}
+
+function ensureConfigurableWorkflowNodes(nodes = []) {
+  const normalized = (Array.isArray(nodes) ? nodes : []).map(normalizeWorkflowNode).filter((node) => node.name);
+  const byName = new Map(normalized.map((node) => [node.name, node]));
+  const middleNodes = normalized.filter((node) => ![START_NODE_NAME, TAIL_NODE_NAME].includes(node.name));
+  return [
+    normalizeWorkflowNode({ ...workflowSystemNodeTemplate(START_NODE_NAME), ...(byName.get(START_NODE_NAME) || {}) }, 0),
+    ...middleNodes,
+    normalizeWorkflowNode({ ...workflowSystemNodeTemplate(TAIL_NODE_NAME), ...(byName.get(TAIL_NODE_NAME) || {}) }, middleNodes.length + 1),
+  ];
+}
+
+function isPinnedWorkflowNode(node = {}) {
+  return [START_NODE_NAME, TAIL_NODE_NAME].includes(textValue(node.name));
+}
+
 function normalizeWorkflowNodes(nodes) {
   const normalized = (Array.isArray(nodes) ? nodes : []).map(normalizeWorkflowNode).filter((node) => node.name);
-  return normalized.length ? normalized : WORKFLOW_CONFIG.map(normalizeWorkflowNode);
+  return ensureConfigurableWorkflowNodes(normalized.length ? normalized : WORKFLOW_CONFIG.map(normalizeWorkflowNode));
 }
 
 function normalizeProcessCardField(field, index = 0) {
@@ -591,6 +633,33 @@ function businessLineById(id) {
   return businessLineOptions().find((line) => line.id === id) || businessLineOptions()[0];
 }
 
+function selectedBusinessLineDraft() {
+  state.businessLines = normalizeBusinessLines(state.businessLines, state.workflowConfig);
+  let index = state.businessLines.findIndex((line) => line.id === state.selectedWorkflowLineId);
+  if (index < 0) {
+    index = 0;
+    state.selectedWorkflowLineId = state.businessLines[0]?.id || DEFAULT_BUSINESS_LINE_ID;
+  }
+  const current = state.businessLines[index];
+  if (!current) return null;
+  return {
+    index,
+    line: {
+      ...clone(current),
+      nodes: normalizeWorkflowNodes(current.nodes),
+      processCardFields: normalizeProcessCardFields(current.processCardFields),
+      riskConfig: normalizeRiskConfig(current.riskConfig),
+    },
+  };
+}
+
+function commitBusinessLineDraft(index, line) {
+  if (index < 0 || !line) return null;
+  state.businessLines[index] = normalizeBusinessLine(line, index);
+  syncWorkflowConfigCache();
+  return state.businessLines[index];
+}
+
 function processFieldOptions(field) {
   return textValue(field.options)
     .split(/[\n,，、]+/)
@@ -646,6 +715,14 @@ function defaultNodeForStatus(status, businessLineId = DEFAULT_BUSINESS_LINE_ID)
   const mapped = STATUS_TO_NODE[status];
   if (mapped && names.includes(mapped)) return mapped;
   return names[0] || "未设置节点";
+}
+
+function canonicalCurrentNode(status, currentNode, businessLineId = DEFAULT_BUSINESS_LINE_ID) {
+  const names = workflowNodeNamesForBusinessLine(businessLineId);
+  if (status === "待启动" && names.includes(START_NODE_NAME)) return START_NODE_NAME;
+  if (status === "已完成" && names.includes(TAIL_NODE_NAME)) return TAIL_NODE_NAME;
+  if (names.includes(currentNode)) return currentNode;
+  return defaultNodeForStatus(status, businessLineId);
 }
 
 function statusForNodeName(nodeName, fallbackStatus = "作者沟通中") {
@@ -769,7 +846,7 @@ function applyStateSnapshot(snapshot) {
   state.workflowConfig = Array.isArray(snapshot.workflowConfig) && snapshot.workflowConfig.length ? normalizeWorkflowNodes(snapshot.workflowConfig) : normalizeWorkflowNodes(WORKFLOW_CONFIG);
   state.businessLines = normalizeBusinessLines(snapshot.businessLines, state.workflowConfig);
   state.selectedWorkflowLineId = state.businessLines.some((line) => line.id === snapshot.selectedWorkflowLineId) ? snapshot.selectedWorkflowLineId : state.businessLines[0].id;
-  state.projects = Array.isArray(snapshot.projects) ? snapshot.projects.map(normalizeProject) : seedProjects();
+  state.projects = Array.isArray(snapshot.projects) ? dedupeProjects(snapshot.projects) : seedProjects();
   state.partners = Array.isArray(snapshot.partners) ? normalizePartners(snapshot.partners, state.projects) : clone(DEFAULT_PARTNERS);
   state.wecomInbox = Array.isArray(snapshot.wecomInbox) ? snapshot.wecomInbox : [];
   state.pushLogs = Array.isArray(snapshot.pushLogs) ? snapshot.pushLogs : [];
@@ -1370,6 +1447,15 @@ function primaryProjectReminder(project) {
   return reminders[0] || null;
 }
 
+function latestProjectReminder(project) {
+  const reminders = normalizeProjectReminders(project);
+  return reminders[reminders.length - 1] || null;
+}
+
+function latestReminderPreviewText(project) {
+  return latestProjectReminder(project)?.note || textValue(project.nextAction) || "暂无提醒内容";
+}
+
 function syncProjectReminderFields(project) {
   project.reminders = normalizeProjectReminders(project);
   const primary = primaryProjectReminder(project);
@@ -1512,7 +1598,7 @@ function tint(hex, opacity) {
 function buildNodes(startDate, owner, status, currentNode, reminderPerson, reminderDate, blockedNode, businessLineId = DEFAULT_BUSINESS_LINE_ID) {
   const workflowNodes = workflowNodesForBusinessLine(businessLineId);
   const currentIndex = Math.max(0, workflowNodes.findIndex((node) => node.name === currentNode));
-  let dayCursor = 3;
+  let dayCursor = 0;
   return workflowNodes.map((workflowNode, index) => {
     const name = workflowNode.name;
     const planned = addDays(startDate, dayCursor);
@@ -1638,7 +1724,7 @@ function normalizeProject(project) {
   const status = STATUS_ORDER.includes(project.status) ? project.status : "待启动";
   const businessLineId = businessLineIdForProject(project);
   const workflowNodeNames = workflowNodeNamesForBusinessLine(businessLineId);
-  const currentNode = workflowNodeNames.includes(project.currentNode) ? project.currentNode : defaultNodeForStatus(status, businessLineId);
+  const currentNode = canonicalCurrentNode(status, project.currentNode, businessLineId);
   const owner = project.owner || "未分配";
   const nextAction = project.nextAction || "待补充下一步动作";
   const reminderBase = {
@@ -1704,6 +1790,35 @@ function normalizeProject(project) {
   });
 }
 
+function projectRecordKey(project = {}) {
+  return textValue(project.code || project.id || "");
+}
+
+function projectRecordTimestamp(project = {}) {
+  const updatedAt = parseDate(project.updatedAt || project.createdAt || new Date()).getTime();
+  return Number.isFinite(updatedAt) ? updatedAt : 0;
+}
+
+function mergeDuplicateProjects(left, right) {
+  return normalizeProject(projectRecordTimestamp(left) >= projectRecordTimestamp(right) ? left : right);
+}
+
+function dedupeProjects(projects = []) {
+  const byKey = new Map();
+  const fallback = [];
+  (Array.isArray(projects) ? projects : []).forEach((project) => {
+    const normalized = normalizeProject(project);
+    const key = projectRecordKey(normalized);
+    if (!key) {
+      fallback.push(normalized);
+      return;
+    }
+    const existing = byKey.get(key);
+    byKey.set(key, existing ? mergeDuplicateProjects(existing, normalized) : normalized);
+  });
+  return [...byKey.values(), ...fallback];
+}
+
 function seedProjects() {
   return PROJECT_BLUEPRINTS.map(createSeedProject);
 }
@@ -1713,7 +1828,7 @@ function loadProjects() {
   if (!raw) return seedProjects();
   try {
     const parsed = JSON.parse(raw);
-    const existing = Array.isArray(parsed) ? parsed.map(normalizeProject) : [];
+    const existing = Array.isArray(parsed) ? dedupeProjects(parsed) : [];
     const byCode = new Map(existing.map((item) => [item.code, item]));
     const demoProjects = PROJECT_BLUEPRINTS.map((row) => byCode.get(row[0]) || createSeedProject(row));
     const demoCodes = new Set(PROJECT_BLUEPRINTS.map((item) => item[0]));
@@ -1725,6 +1840,7 @@ function loadProjects() {
 }
 
 function saveProjects() {
+  state.projects = dedupeProjects(state.projects);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.projects));
   queueRemoteSync();
 }
@@ -1856,6 +1972,49 @@ function allowedAdminTabs(user = currentUser()) {
     .map(([key]) => key);
 }
 
+function canAccessFrontWorkspaceTab(key, user = currentUser()) {
+  if (key === "partners") return hasPermission("管理合作方", user);
+  return true;
+}
+
+function allowedFrontWorkspaceTabs(user = currentUser()) {
+  return ["reminders", "pushLogs", "partners"].filter((key) => canAccessFrontWorkspaceTab(key, user));
+}
+
+function canCreatePublicReminder(user = currentUser()) {
+  return hasPermission("编辑项目状态", user);
+}
+
+function canManagePushLogs(user = currentUser()) {
+  return canAccessAdmin(user);
+}
+
+function userOwnedProjects(user = currentUser()) {
+  return state.projects.filter((project) => project.owner === user.name);
+}
+
+function pushLogVisibleToUser(log, user = currentUser()) {
+  if (canManagePushLogs(user)) return true;
+  const ownedCodes = new Set(userOwnedProjects(user).map((project) => project.code));
+  const ownedTitles = new Set(userOwnedProjects(user).map((project) => project.title));
+  return log.receiver === user.name
+    || log.actor === user.name
+    || (log.projectCode && ownedCodes.has(log.projectCode))
+    || (log.projectTitle && ownedTitles.has(log.projectTitle));
+}
+
+function visiblePushLogs(user = currentUser()) {
+  return (Array.isArray(state.pushLogs) ? state.pushLogs : []).filter((log) => pushLogVisibleToUser(log, user));
+}
+
+function canCompleteReminderRow(row, user = currentUser()) {
+  if (!row?.reminder) return false;
+  if (canAccessAdmin(user) || hasPermission("编辑项目状态", user)) return true;
+  return row.reminder.person === user.name
+    || row.reminder.actor === user.name
+    || row.project?.owner === user.name;
+}
+
 function filteredProjects() {
   const search = state.filters.search.trim().toLowerCase();
   return visibleProjects().filter((project) => {
@@ -1914,11 +2073,18 @@ function renderNoticeBar() {
   const myProjects = state.projects.filter((item) => item.owner === user.name && !["已完成", "已暂停"].includes(item.status)).length;
   const myReminders = todayAllReminderItems(state.projects, user.name).length;
   const highRisk = state.projects.filter((item) => getProjectRisk(item).level === "高").length;
-  const adminHint = canAccessAdmin(user) ? "可进入后台管理配置" : "当前身份只开放业务看板操作";
+  const frontTabs = allowedFrontWorkspaceTabs(user).map((key) => {
+    if (key === "reminders") return "提醒中心";
+    if (key === "pushLogs") return "推送记录";
+    return "合作商管理";
+  });
+  const capabilityHint = canAccessAdmin(user)
+    ? `前台可直接操作：${frontTabs.join("、")}；也可进入后台配置`
+    : `前台可直接操作：${frontTabs.join("、")}`;
   elements.noticeBar.innerHTML = `
     <div class="notice-item">
       <strong>${escapeHtml(user.name)} 当前在跟 ${myProjects} 个项目，今天有 ${myReminders} 个待提醒事项。</strong>
-      <span class="mini-text">当前身份：${escapeHtml(user.role)} · ${escapeHtml(adminHint)}</span>
+      <span class="mini-text">当前身份：${escapeHtml(user.role)} · ${escapeHtml(capabilityHint)}</span>
     </div>
     <div class="notice-item">
       <strong>系统当前识别出 ${highRisk} 个高风险项目，建议优先查看风险与提醒清单。</strong>
@@ -1988,26 +2154,27 @@ function renderBoard(projects) {
         </div>
         <div class="stage-cards">
           ${list.length ? list.map((project) => {
-            const risk = getProjectRisk(project);
             return `
               <article class="project-card" style="background: linear-gradient(180deg, rgba(255,255,255,0.9), ${tint(meta.tone, 0.08)})">
-                <button type="button" data-open-project="${escapeHtml(project.id)}">
-                  <div class="project-card-top">
-                    <div>
-                      <h3 class="project-title">${escapeHtml(project.title)}</h3>
-                      <div class="project-author">${escapeHtml(project.author)} · ${escapeHtml(project.code)}</div>
+                <div class="project-card-surface">
+                  <div class="project-card-actions">
+                    <button
+                      type="button"
+                      class="button button-secondary project-card-action-button"
+                      data-board-action="open-process-card"
+                      data-project-id="${escapeHtml(project.id)}"
+                    >
+                      工艺卡
+                    </button>
+                  </div>
+                  <button type="button" class="project-card-body" data-open-project="${escapeHtml(project.id)}" aria-label="打开订单详情：${escapeHtml(project.title)}">
+                    <h3 class="project-title">${escapeHtml(project.title)}</h3>
+                    <div class="project-card-reminder-preview">
+                      <span class="project-card-reminder-label">最新提醒</span>
+                      <p class="project-card-reminder-text">${escapeHtml(latestReminderPreviewText(project))}</p>
                     </div>
-                    <span class="${riskChip(risk.level)}">${escapeHtml(risk.level)}风险</span>
-                  </div>
-                  <div class="project-card-meta">
-                    <div>负责人：${escapeHtml(project.owner)}</div>
-                    <div>业务线：${escapeHtml(businessLineName(project.businessLineId))}</div>
-                    <div>合作方：${escapeHtml(project.partner || "未设置")}</div>
-                    <div>当前节点：${escapeHtml(project.currentNode)}</div>
-                  </div>
-                  ${reminderListHtml(project, { compact: true })}
-                  ${reminderRecordHtml(project)}
-                </button>
+                  </button>
+                </div>
               </article>`;
           }).join("") : `<div class="empty-state">当前筛选条件下，这一列没有项目。</div>`}
         </div>
@@ -2072,16 +2239,15 @@ function renderAdminNav() {
   const tabs = [
     ["overview", "后台概览", "先看整体配置状态"],
     ["ai", "AI 管家", "自然语言理解和后台问答"],
+    ["riskConfig", "AI 风险预测", "单独维护风险预测规则"],
     ["users", "人员录入", "人员名单、角色和部门"],
     ["departments", "组织部门", "人员安排时从部门里选择"],
     ["roles", "角色管理", "建立角色并接入权限矩阵"],
     ["permissions", "权限分配", "按角色查看权限矩阵"],
-    ["partners", "合作方管理", "合作方主数据和项目引用"],
     ["businessLines", "业务线管理", "出版、设计、生产等业务分类"],
-    ["productCards", "工艺卡配置", "按业务线维护产品工艺卡字段"],
-    ["workflow", "流程节点配置", "按业务线维护节点增删改"],
-    ["reminders", "提醒中心", "订单提醒、公共提醒和确认状态"],
-    ["pushLogs", "推送记录", "内容、时间、发起人和发送结果"],
+    ["workflow", "节点", "按业务线维护节点详情"],
+    ["workflowSettings", "节点设置", "维护流程名称和业务线说明"],
+    ["productCards", "工艺卡", "按业务线维护产品工艺卡字段"],
   ];
   const visibleTabs = tabs.filter(([key]) => allowedAdminTabs().includes(key));
   elements.adminTabNav.innerHTML = visibleTabs.map(([key, title, desc]) => `
@@ -2471,17 +2637,26 @@ async function sendAiChatMessage(message) {
   }
 }
 
-function allReminderRows() {
-  const projectRows = state.projects.flatMap((project) => normalizeProjectReminders(project).map((reminder) => ({
-    scope: "project",
-    project,
-    reminder,
-  })));
-  const publicRows = normalizePublicReminders(state.publicReminders).map((reminder) => ({
-    scope: "public",
-    project: null,
-    reminder,
-  }));
+function publicReminderVisibleToUser(reminder, user = currentUser()) {
+  if (canAccessAdmin(user) || hasPermission("编辑项目状态", user)) return true;
+  return reminder.person === user.name || reminder.actor === user.name;
+}
+
+function allReminderRows(user = currentUser()) {
+  const projectRows = state.projects
+    .filter((project) => canAccessAdmin(user) || hasPermission("编辑项目状态", user) || project.owner === user.name || normalizeProjectReminders(project).some((reminder) => reminder.person === user.name || reminder.actor === user.name))
+    .flatMap((project) => normalizeProjectReminders(project).map((reminder) => ({
+      scope: "project",
+      project,
+      reminder,
+    })));
+  const publicRows = normalizePublicReminders(state.publicReminders)
+    .filter((reminder) => publicReminderVisibleToUser(reminder, user))
+    .map((reminder) => ({
+      scope: "public",
+      project: null,
+      reminder,
+    }));
   return [...projectRows, ...publicRows];
 }
 
@@ -2518,11 +2693,11 @@ function reminderTabMatches(row, tab) {
   return true;
 }
 
-function filteredReminderRows() {
+function filteredReminderRows(user = currentUser()) {
   const filters = state.reminderFilters || { tab: "all", person: "全部", keyword: "", sort: "timeDesc" };
   const keyword = String(filters.keyword || "").trim().toLowerCase();
   const person = filters.person || "全部";
-  const rows = allReminderRows()
+  const rows = allReminderRows(user)
     .filter((row) => reminderTabMatches(row, filters.tab || "all"))
     .filter((row) => person === "全部" || row.reminder.person === person || row.reminder.actor === person)
     .filter((row) => !keyword || reminderRowText(row).includes(keyword));
@@ -2534,8 +2709,8 @@ function filteredReminderRows() {
   });
 }
 
-function reminderTabItems() {
-  const rows = allReminderRows();
+function reminderTabItems(user = currentUser()) {
+  const rows = allReminderRows(user);
   const tabs = [
     ["all", "全部"],
     ["today", "今日"],
@@ -2577,12 +2752,17 @@ function pushLogSourceText(log, projectText = "") {
   return [source, projectText].filter(Boolean).join(" / ");
 }
 
-function renderRemindersPanel() {
+function renderRemindersPanel(container = elements.adminContent, options = {}) {
   const rows = filteredReminderRows();
   const filters = state.reminderFilters || { tab: "all", person: "全部", keyword: "", sort: "timeDesc" };
   const upcomingPublic = activePublicReminders().length;
   const personOptions = ["全部", ...state.teamMembers.map((member) => member.name)];
-  elements.adminContent.innerHTML = `
+  const isFront = options.surface === "front";
+  const canCreateReminder = canCreatePublicReminder();
+  const visibilityNote = canAccessAdmin()
+    ? "可按页签、人员、关键字和时间顺序筛选提醒内容。"
+    : "当前只显示你能直接处理的提醒与公共事项。";
+  container.innerHTML = `
     <div class="data-panel-stack">
       <section class="data-panel">
         <div class="table-toolbar">
@@ -2614,14 +2794,22 @@ function renderRemindersPanel() {
             <span>确认</span>
             <label><input type="checkbox" name="confirmable" checked disabled /> 推送后需要对方确认完成</label>
           </label>
-          <button type="submit" class="button button-primary">新增公共提醒</button>
+          <button
+            type="submit"
+            class="button button-primary"
+            ${canCreateReminder ? "" : "disabled"}
+            title="${escapeHtml(canCreateReminder ? "" : "当前身份不能新增公共提醒")}"
+          >
+            新增公共提醒
+          </button>
         </form>
+        ${canCreateReminder ? "" : `<div class="mini-text">${escapeHtml(isFront ? "当前身份可以在前台查看和确认提醒，新增公共提醒仍需项目编辑权限。" : "当前身份只能查看和确认提醒，不能新增公共提醒。")}</div>`}
       </section>
       <section class="data-panel">
         <div class="table-toolbar">
           <div>
             <h3>提醒内容筛选</h3>
-            <div class="mini-text">可按页签、人员、关键字和时间顺序筛选提醒内容。</div>
+            <div class="mini-text">${escapeHtml(visibilityNote)}</div>
           </div>
           <span class="chip chip-status">当前显示 ${rows.length} 条</span>
         </div>
@@ -2664,6 +2852,7 @@ function renderRemindersPanel() {
               const isCompleted = reminder.status === "completed" || reminder.completedAt;
               const scopeText = scope === "project" ? "订单提醒" : "公共提醒";
               const projectText = project ? `${project.code} · ${project.title}` : "公共事项";
+              const canComplete = canCompleteReminderRow({ scope, project, reminder });
               return `
                 <tr>
                   <td><span class="permission-badge">${escapeHtml(scopeText)}</span></td>
@@ -2679,7 +2868,18 @@ function renderRemindersPanel() {
                   </td>
                   <td>${escapeHtml([reminder.source, reminder.actor].filter(Boolean).join(" / ") || "手动提醒")}</td>
                   <td>
-                    <button type="button" class="table-action" data-admin-action="complete-reminder" data-reminder-scope="${escapeHtml(scope)}" data-reminder-id="${escapeHtml(reminder.id)}" data-project-id="${escapeHtml(project?.id || "")}" ${isCompleted ? "disabled" : ""}>标记完成</button>
+                    <button
+                      type="button"
+                      class="table-action"
+                      data-admin-action="complete-reminder"
+                      data-reminder-scope="${escapeHtml(scope)}"
+                      data-reminder-id="${escapeHtml(reminder.id)}"
+                      data-project-id="${escapeHtml(project?.id || "")}"
+                      ${isCompleted || !canComplete ? "disabled" : ""}
+                      title="${escapeHtml(isCompleted ? "该提醒已完成" : canComplete ? "" : "当前身份只能处理自己负责或自己发起的提醒")}"
+                    >
+                      标记完成
+                    </button>
                   </td>
                 </tr>`;
             }).join("")}
@@ -2692,25 +2892,35 @@ function renderRemindersPanel() {
       </section>`}`;
 }
 
-function renderPushLogsPanel() {
-  const pushLogs = (Array.isArray(state.pushLogs) ? state.pushLogs : []).slice().sort((left, right) => {
+function renderPushLogsPanel(container = elements.adminContent, options = {}) {
+  const pushLogs = visiblePushLogs().slice().sort((left, right) => {
     return parseDate(right.pushedAt).getTime() - parseDate(left.pushedAt).getTime();
   });
   const estimatedSizeKb = Math.max(1, Math.round(JSON.stringify(pushLogs).length / 1024));
-  elements.adminContent.innerHTML = `
+  const canManageLogs = canManagePushLogs();
+  const isFront = options.surface === "front";
+  container.innerHTML = `
     <div class="data-panel-stack">
       <section class="data-panel">
         <div class="table-toolbar">
           <div>
             <h3>企业微信信息推送记录</h3>
-            <div class="mini-text">只记录真正对工作人员发出的到点提醒、公共提醒和后台主动推送；命令反馈和确认回执不进入这里。</div>
+            <div class="mini-text">只记录真正对工作人员发出的到点提醒、公共提醒和工作台主动推送；命令反馈和确认回执不进入这里。</div>
           </div>
           <div class="toolbar-actions">
-            <span class="chip chip-status">全部保留 ${pushLogs.length} 条 · 约 ${estimatedSizeKb} KB</span>
-            <button type="button" class="table-action table-action-danger" data-admin-action="clear-push-logs" ${pushLogs.length ? "" : "disabled"}>清空记录</button>
+            <span class="chip chip-status">当前显示 ${pushLogs.length} 条 · 约 ${estimatedSizeKb} KB</span>
+            <button
+              type="button"
+              class="table-action table-action-danger"
+              data-admin-action="clear-push-logs"
+              ${pushLogs.length && canManageLogs ? "" : "disabled"}
+              title="${escapeHtml(canManageLogs ? "" : "当前身份只能查看推送留痕，不能清空记录")}"
+            >
+              清空记录
+            </button>
           </div>
         </div>
-        <div class="mini-text">提示：记录量特别大时会占用存储空间，也会让后台表格变慢；后续由后台管理员按需删除。</div>
+        <div class="mini-text">${escapeHtml(canManageLogs ? "提示：记录量特别大时会占用存储空间，也会让表格变慢；建议按需删除。" : (isFront ? "当前前台只开放查看留痕；删除和清空仍保留给后台配置权限。" : "当前身份只能查看推送留痕。"))}</div>
       </section>
     </div>
     ${pushLogs.length ? `
@@ -2740,7 +2950,18 @@ function renderPushLogsPanel() {
                   </td>
                   <td>${escapeHtml(sourceText)}</td>
                   <td class="push-error-cell">${escapeHtml(log.error || "-")}</td>
-                  <td><button type="button" class="table-action table-action-danger" data-admin-action="delete-push-log" data-push-log-id="${escapeHtml(log.id)}">删除</button></td>
+                  <td>
+                    <button
+                      type="button"
+                      class="table-action table-action-danger"
+                      data-admin-action="delete-push-log"
+                      data-push-log-id="${escapeHtml(log.id)}"
+                      ${canManageLogs ? "" : "disabled"}
+                      title="${escapeHtml(canManageLogs ? "" : "当前身份不能删除推送留痕")}"
+                    >
+                      删除
+                    </button>
+                  </td>
                 </tr>`;
             }).join("")}
           </tbody>
@@ -2750,6 +2971,94 @@ function renderPushLogsPanel() {
         <h3>还没有推送记录</h3>
         <div class="mini-text">后续企业微信到点提醒、后台主动发消息会自动写入这里。</div>
       </section>`}`;
+}
+
+function renderPartnersPanel(container = elements.adminContent) {
+  const canManagePartners = hasPermission("管理合作方");
+  container.innerHTML = `
+    <div class="data-panel-stack">
+      <section class="data-panel">
+        <div class="table-toolbar">
+          <div>
+            <h3>合作商主数据</h3>
+            <div class="mini-text">项目录入时通过下拉选择进入。</div>
+          </div>
+          <button type="button" class="button button-primary" data-admin-action="add-partner" ${canManagePartners ? "" : "disabled"}>新增合作商</button>
+        </div>
+      </section>
+    </div>
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th>合作商</th><th>联系人</th><th>联系电话</th><th>地址/区域</th><th>当前项目数</th><th>高风险项目</th><th>说明</th><th>操作</th></tr></thead>
+        <tbody>
+          ${getPartnerProfiles().map((partner) => {
+            const partnerProjects = state.projects.filter((item) => item.partner === partner.name);
+            const highRisk = partnerProjects.filter((item) => getProjectRisk(item).level === "高").length;
+            return `
+              <tr>
+                <td>${escapeHtml(partner.name)}</td>
+                <td>${escapeHtml(partner.contact || "未设置")}</td>
+                <td>${escapeHtml(partner.phone || "未设置")}</td>
+                <td>${escapeHtml(partner.address || "未设置")}</td>
+                <td>${partnerProjects.length}</td>
+                <td>${highRisk}</td>
+                <td>${escapeHtml(partner.note || "项目录入时通过选择进入")}</td>
+                <td>
+                  <div class="table-action-group">
+                    <button type="button" class="table-action" data-admin-action="edit-partner" data-partner-name="${escapeHtml(partner.name)}" ${canManagePartners ? "" : "disabled"}>编辑</button>
+                    <button type="button" class="table-action table-action-danger" data-admin-action="delete-partner" data-partner-name="${escapeHtml(partner.name)}" ${canManagePartners ? "" : "disabled"}>删除</button>
+                  </div>
+                </td>
+              </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function frontWorkspaceTabMeta() {
+  if (state.frontWorkspaceTab === "reminders") return `提醒中心当前展示 ${filteredReminderRows().length} 条内容`;
+  if (state.frontWorkspaceTab === "pushLogs") return `推送记录当前展示 ${visiblePushLogs().length} 条留痕`;
+  return `合作商管理当前接入 ${getPartners().length} 个合作商`;
+}
+
+function renderFrontWorkspaceNav() {
+  const tabs = allowedFrontWorkspaceTabs();
+  elements.frontWorkspaceStage.style.display = tabs.length ? "" : "none";
+  if (!tabs.length) {
+    elements.frontWorkspaceNav.innerHTML = "";
+    elements.frontWorkspaceContent.innerHTML = "";
+    elements.frontWorkspaceMeta.textContent = "";
+    return;
+  }
+  if (!tabs.includes(state.frontWorkspaceTab)) state.frontWorkspaceTab = tabs[0];
+  const items = [
+    ["reminders", "提醒中心", `${filteredReminderRows().length} 条`, "订单提醒、公共提醒和完成确认"],
+    ["pushLogs", "推送记录", `${visiblePushLogs().length} 条`, "查看企微推送留痕和确认状态"],
+    ["partners", "合作商管理", `${getPartners().length} 个`, "维护合作商主数据和项目引用"],
+  ].filter(([key]) => tabs.includes(key));
+  elements.frontWorkspaceMeta.textContent = `前台直达 ${tabs.length} 项 · ${frontWorkspaceTabMeta()}`;
+  elements.frontWorkspaceNav.innerHTML = items.map(([key, title, count, desc]) => `
+    <button type="button" class="admin-nav-button ${state.frontWorkspaceTab === key ? "is-active" : ""}" data-front-tab="${key}">
+      <strong>${escapeHtml(title)}</strong>
+      <span class="mini-text">${escapeHtml(count)} · ${escapeHtml(desc)}</span>
+    </button>`).join("");
+}
+
+function renderFrontWorkspaceContent() {
+  if (state.frontWorkspaceTab === "reminders") {
+    renderRemindersPanel(elements.frontWorkspaceContent, { surface: "front" });
+    return;
+  }
+  if (state.frontWorkspaceTab === "pushLogs") {
+    renderPushLogsPanel(elements.frontWorkspaceContent, { surface: "front" });
+    return;
+  }
+  if (state.frontWorkspaceTab === "partners") {
+    renderPartnersPanel(elements.frontWorkspaceContent);
+    return;
+  }
+  elements.frontWorkspaceContent.innerHTML = "";
 }
 
 function renderAdminContent() {
@@ -2768,14 +3077,16 @@ function renderAdminContent() {
   const titles = {
     overview: ["后台概览", "适合先确认人员、合作方、权限和流程节点是否齐。"],
     ai: ["AI 管家", "已接入云雾 DeepSeek V4 Flash，用来理解自然语言并辅助整理订单动作。"],
+    riskConfig: ["AI 风险预测", "单独维护风险预测开关、审核负责人和判定规则。"],
     users: ["人员录入", `当前共 ${state.teamMembers.length} 名成员。`],
     departments: ["组织部门", `当前共 ${departmentOptions().length} 个部门，人员安排时从这里选择。`],
     roles: ["角色管理", `当前共 ${roleOptions().length} 个角色，权限矩阵会按角色同步展示。`],
     permissions: ["权限分配", "当前可以在这里调整角色权限矩阵。"],
     partners: ["合作方管理", `当前已整理 ${getPartners().length} 个合作方，项目录入时已改成通过选择进入。`],
     businessLines: ["业务线管理", `当前共 ${businessLineOptions().length} 条业务线，可分别维护流程名称和说明。`],
-    productCards: ["工艺卡配置", "按业务线配置订单详情里的产品工艺卡字段。"],
-    workflow: ["流程节点配置", "可以按业务线维护流程节点、产品工艺卡、风险预测配置和审核负责人。"],
+    workflow: ["节点", "把选择业务线、保存节点和节点详情放在一处维护。"],
+    workflowSettings: ["节点设置", "这里单独维护流程名称和业务线说明。"],
+    productCards: ["工艺卡", "按业务线配置订单详情里的产品工艺卡字段。"],
     reminders: ["提醒中心", `当前共有 ${activePublicReminders().length} 条未完成公共提醒，订单提醒和公共提醒都可在这里看确认状态。`],
     pushLogs: ["信息推送记录", `当前共 ${state.pushLogs.length} 条推送记录，包含成功、失败和失败原因。`],
   };
@@ -2792,18 +3103,21 @@ function renderAdminContent() {
             <span class="chip chip-status">按项目 / 按人员双视图</span>
               <span class="chip chip-status">人员模块</span>
               <span class="chip chip-status">组织部门</span>
-              <span class="chip chip-status">角色管理</span>
-              <span class="chip chip-status">权限矩阵</span>
-              <span class="chip chip-status">合作方管理</span>
+          <span class="chip chip-status">角色管理</span>
+          <span class="chip chip-status">权限矩阵</span>
           <span class="chip chip-status">业务线管理</span>
-          <span class="chip chip-status">流程节点配置</span>
-          <span class="chip chip-status">提醒中心</span>
-          <span class="chip chip-status">信息推送记录</span>
+          <span class="chip chip-status">节点</span>
+          <span class="chip chip-status">节点设置</span>
+          <span class="chip chip-status">工艺卡</span>
+          <span class="chip chip-status">AI 风险预测</span>
+          <span class="chip chip-status">前台直达：提醒中心</span>
+          <span class="chip chip-status">前台直达：推送记录</span>
+          <span class="chip chip-status">前台直达：合作商管理</span>
           </div>
         </section>
         <section class="settings-panel">
           <h3>当前后台数据状态</h3>
-          <div class="mini-text">人员、合作方、权限矩阵和流程节点都已经切换到可保存的数据源，下面几个模块会继续把新增和编辑动作接上。</div>
+          <div class="mini-text">人员、合作商、权限矩阵和流程节点都已经切换到可保存的数据源；提醒、推送记录和合作商维护现在也能从前台直接进入。</div>
         </section>
       </div>`;
     return;
@@ -2815,12 +3129,12 @@ function renderAdminContent() {
   }
 
   if (state.adminTab === "reminders") {
-    renderRemindersPanel();
+    renderRemindersPanel(elements.adminContent, { surface: "admin" });
     return;
   }
 
   if (state.adminTab === "pushLogs") {
-    renderPushLogsPanel();
+    renderPushLogsPanel(elements.adminContent, { surface: "admin" });
     return;
   }
 
@@ -2971,46 +3285,7 @@ function renderAdminContent() {
   }
 
     if (state.adminTab === "partners") {
-      const canManagePartners = hasPermission("管理合作方");
-      elements.adminContent.innerHTML = `
-      <div class="data-panel-stack">
-        <section class="data-panel">
-          <div class="table-toolbar">
-            <div>
-              <h3>合作方主数据</h3>
-              <div class="mini-text">项目录入时通过下拉选择进入。</div>
-            </div>
-            <button type="button" class="button button-primary" data-admin-action="add-partner" ${canManagePartners ? "" : "disabled"}>新增合作方</button>
-          </div>
-        </section>
-      </div>
-        <div class="table-wrapper">
-          <table>
-            <thead><tr><th>合作方</th><th>联系人</th><th>联系电话</th><th>地址/区域</th><th>当前项目数</th><th>高风险项目</th><th>说明</th><th>操作</th></tr></thead>
-            <tbody>
-              ${getPartnerProfiles().map((partner) => {
-                const partnerProjects = state.projects.filter((item) => item.partner === partner.name);
-                const highRisk = partnerProjects.filter((item) => getProjectRisk(item).level === "高").length;
-                return `
-                  <tr>
-                    <td>${escapeHtml(partner.name)}</td>
-                    <td>${escapeHtml(partner.contact || "未设置")}</td>
-                    <td>${escapeHtml(partner.phone || "未设置")}</td>
-                    <td>${escapeHtml(partner.address || "未设置")}</td>
-                    <td>${partnerProjects.length}</td>
-                    <td>${highRisk}</td>
-                    <td>${escapeHtml(partner.note || "项目录入时通过选择进入")}</td>
-                    <td>
-                      <div class="table-action-group">
-                        <button type="button" class="table-action" data-admin-action="edit-partner" data-partner-name="${escapeHtml(partner.name)}" ${canManagePartners ? "" : "disabled"}>编辑</button>
-                        <button type="button" class="table-action table-action-danger" data-admin-action="delete-partner" data-partner-name="${escapeHtml(partner.name)}" ${canManagePartners ? "" : "disabled"}>删除</button>
-                      </div>
-                    </td>
-                  </tr>`;
-              }).join("")}
-            </tbody>
-        </table>
-    </div>`;
+      renderPartnersPanel(elements.adminContent);
     return;
   }
 
@@ -3055,18 +3330,20 @@ function renderAdminContent() {
       return;
     }
 
-    if (state.adminTab === "productCards") {
-      const canManageWorkflow = hasPermission("管理流程节点");
-      const workflowLine = businessLineById(state.selectedWorkflowLineId);
+    const canManageWorkflow = hasPermission("管理流程节点");
+    const workflowRoles = roleOptions();
+    const workflowLine = businessLineById(state.selectedWorkflowLineId);
+
+    if (state.adminTab === "workflowSettings") {
       elements.adminContent.innerHTML = `
         <div class="data-panel-stack">
           <section class="data-panel">
             <div class="table-toolbar">
               <div>
-                <h3>按业务线配置产品工艺卡</h3>
-                <div class="mini-text">这里配置的字段，会显示在订单详情页的“产品工艺卡”里。</div>
+                <h3>节点设置</h3>
+                <div class="mini-text">这里单独维护流程名称和业务线说明，不和节点详情混在一起。</div>
               </div>
-              <button type="button" class="button button-primary" data-admin-action="add-process-card-field" ${canManageWorkflow ? "" : "disabled"}>新增工艺字段</button>
+              <button type="button" class="button button-secondary" data-admin-action="save-workflow-config" ${canManageWorkflow ? "" : "disabled"}>保存节点设置</button>
             </div>
             <div class="workflow-config-toolbar">
               <label class="mini-field">
@@ -3083,6 +3360,31 @@ function renderAdminContent() {
                 <span>业务线说明</span>
                 <input value="${escapeHtml(workflowLine.description || "")}" data-workflow-line-field="description" ${canManageWorkflow ? "" : "disabled"} />
               </label>
+            </div>
+          </section>
+        </div>`;
+      return;
+    }
+
+    if (state.adminTab === "productCards") {
+      elements.adminContent.innerHTML = `
+        <div class="data-panel-stack">
+          <section class="data-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>按业务线配置工艺卡</h3>
+                <div class="mini-text">这里只管工艺卡字段本身，不再夹带节点设置和 AI 风险预测。</div>
+              </div>
+              <button type="button" class="button button-primary" data-admin-action="add-process-card-field" ${canManageWorkflow ? "" : "disabled"}>新增工艺字段</button>
+            </div>
+            <div class="workflow-config-toolbar workflow-config-toolbar-compact">
+              <label class="mini-field">
+                <span>当前业务线</span>
+                <select data-workflow-line-select ${canManageWorkflow ? "" : "disabled"}>
+                  ${businessLineOptions().map((line) => `<option value="${escapeHtml(line.id)}" ${workflowLine.id === line.id ? "selected" : ""}>${escapeHtml(line.name)}</option>`).join("")}
+                </select>
+              </label>
+              <div class="workflow-panel-note mini-text">切换业务线后，下面会直接显示这条业务线自己的工艺卡字段。</div>
             </div>
           </section>
         </div>
@@ -3109,113 +3411,113 @@ function renderAdminContent() {
       return;
     }
 
-    const canManageWorkflow = hasPermission("管理流程节点");
-    const workflowRoles = roleOptions();
-    const workflowLine = businessLineById(state.selectedWorkflowLineId);
+    if (state.adminTab === "riskConfig") {
+      elements.adminContent.innerHTML = `
+        <div class="data-panel-stack">
+          <section class="data-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>AI 风险预测</h3>
+                <div class="mini-text">这部分单独管理，不和节点、节点设置、工艺卡放在同一页里。</div>
+              </div>
+              <button type="button" class="button button-secondary" data-admin-action="save-workflow-config" ${canManageWorkflow ? "" : "disabled"}>保存 AI 风险设置</button>
+            </div>
+            <div class="workflow-config-toolbar workflow-config-toolbar-compact">
+              <label class="mini-field">
+                <span>当前业务线</span>
+                <select data-workflow-line-select ${canManageWorkflow ? "" : "disabled"}>
+                  ${businessLineOptions().map((line) => `<option value="${escapeHtml(line.id)}" ${workflowLine.id === line.id ? "selected" : ""}>${escapeHtml(line.name)}</option>`).join("")}
+                </select>
+              </label>
+              <label class="switch-line workflow-risk-switch">
+                <input type="checkbox" data-risk-config-field="enabled" ${workflowLine.riskConfig.enabled ? "checked" : ""} ${canManageWorkflow ? "" : "disabled"} />
+                启用 AI 风险预测
+              </label>
+            </div>
+          </section>
+          <section class="data-panel">
+            <div class="risk-config-grid">
+              <label class="mini-field">
+                <span>审核负责人</span>
+                <select data-risk-config-field="reviewer" ${canManageWorkflow ? "" : "disabled"}>
+                  <option value="">暂不指定</option>
+                  ${state.teamMembers.map((member) => `<option value="${escapeHtml(member.name)}" ${workflowLine.riskConfig.reviewer === member.name ? "selected" : ""}>${escapeHtml(member.name)} · ${escapeHtml(member.department)}</option>`).join("")}
+                </select>
+              </label>
+              <label class="mini-field workflow-description-field">
+                <span>风险关注点</span>
+                <textarea data-risk-config-field="focus" rows="3" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(workflowLine.riskConfig.focus)}</textarea>
+              </label>
+              <label class="mini-field workflow-description-field field-full">
+                <span>质检标准</span>
+                <textarea data-risk-config-field="qualityStandard" rows="3" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(workflowLine.riskConfig.qualityStandard)}</textarea>
+              </label>
+            </div>
+          </section>
+        </div>`;
+      return;
+    }
+
     elements.adminContent.innerHTML = `
       <div class="data-panel-stack">
         <section class="data-panel">
           <div class="table-toolbar">
             <div>
-              <h3>按业务线配置节点</h3>
-              <div class="mini-text">先选择业务线，再维护该业务线自己的流程名称、节点、产品工艺卡和风险预测规则。</div>
+              <h3>节点</h3>
+              <div class="mini-text">把选择业务线和保存节点放在这里，下面紧接着就是节点详情。</div>
             </div>
-            <button type="button" class="button button-primary" data-admin-action="add-workflow-node" ${canManageWorkflow ? "" : "disabled"}>新增节点</button>
+            <div class="table-toolbar-actions">
+              <button type="button" class="button button-secondary" data-admin-action="save-workflow-config" ${canManageWorkflow ? "" : "disabled"}>保存节点</button>
+              <button type="button" class="button button-primary" data-admin-action="add-workflow-node" ${canManageWorkflow ? "" : "disabled"}>新增节点</button>
+            </div>
           </div>
-          <div class="workflow-config-toolbar">
+          <div class="workflow-config-toolbar workflow-config-toolbar-compact">
             <label class="mini-field">
               <span>当前业务线</span>
               <select data-workflow-line-select ${canManageWorkflow ? "" : "disabled"}>
                 ${businessLineOptions().map((line) => `<option value="${escapeHtml(line.id)}" ${workflowLine.id === line.id ? "selected" : ""}>${escapeHtml(line.name)}</option>`).join("")}
               </select>
             </label>
-            <label class="mini-field">
-              <span>流程名称</span>
-              <input value="${escapeHtml(workflowLine.workflowName)}" data-workflow-line-field="workflowName" ${canManageWorkflow ? "" : "disabled"} />
-            </label>
-            <label class="mini-field workflow-description-field">
-              <span>业务线说明</span>
-              <input value="${escapeHtml(workflowLine.description || "")}" data-workflow-line-field="description" ${canManageWorkflow ? "" : "disabled"} />
-            </label>
+            <div class="workflow-panel-note mini-text">切换业务线后，可直接在下方维护这条业务线的节点详情、顺序和责任角色。</div>
           </div>
         </section>
         <section class="data-panel">
           <div class="table-toolbar">
             <div>
-              <h3>产品风险预测配置</h3>
-              <div class="mini-text">每条业务线可以指定风险关注点、质检标准和后续审核负责人。</div>
+              <h3>节点详情</h3>
+              <div class="mini-text">这里维护节点名称、默认负责人、默认提醒角色和标准周期。</div>
             </div>
-            <label class="switch-line">
-              <input type="checkbox" data-risk-config-field="enabled" ${workflowLine.riskConfig.enabled ? "checked" : ""} ${canManageWorkflow ? "" : "disabled"} />
-              启用 AI 风险预测
-            </label>
           </div>
-          <div class="risk-config-grid">
-            <label class="mini-field">
-              <span>审核负责人</span>
-              <select data-risk-config-field="reviewer" ${canManageWorkflow ? "" : "disabled"}>
-                <option value="">暂不指定</option>
-                ${state.teamMembers.map((member) => `<option value="${escapeHtml(member.name)}" ${workflowLine.riskConfig.reviewer === member.name ? "selected" : ""}>${escapeHtml(member.name)} · ${escapeHtml(member.department)}</option>`).join("")}
-              </select>
-            </label>
-            <label class="mini-field workflow-description-field">
-              <span>风险关注点</span>
-              <textarea data-risk-config-field="focus" rows="3" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(workflowLine.riskConfig.focus)}</textarea>
-            </label>
-            <label class="mini-field workflow-description-field field-full">
-              <span>质检标准</span>
-              <textarea data-risk-config-field="qualityStandard" rows="3" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(workflowLine.riskConfig.qualityStandard)}</textarea>
-            </label>
-          </div>
-        </section>
-        <section class="data-panel">
-          <div class="table-toolbar">
-            <div>
-              <h3>业务线工艺卡配置</h3>
-              <div class="mini-text">这里定义订单详情里的“产品工艺卡”字段。支持文本、多行文本、下拉选项和勾选项。</div>
-            </div>
-            <button type="button" class="button button-primary" data-admin-action="add-process-card-field" ${canManageWorkflow ? "" : "disabled"}>新增工艺字段</button>
-          </div>
-          <div class="table-wrapper process-config-wrapper">
+          <div class="table-wrapper">
             <table>
-              <thead><tr><th>字段名</th><th>类型</th><th>下拉选项</th><th>占位提示</th><th>必填</th><th>操作</th></tr></thead>
+              <thead><tr><th>顺序</th><th>节点名称</th><th>默认负责人角色</th><th>默认提醒角色</th><th>标准周期（天）</th><th>操作</th></tr></thead>
               <tbody>
-                ${workflowLine.processCardFields.map((field) => `
+                ${workflowLine.nodes.map((node, index) => {
+                  const pinned = isPinnedWorkflowNode(node);
+                  const upDisabled = !canManageWorkflow || index === 0 || node.name === START_NODE_NAME;
+                  const downDisabled = !canManageWorkflow || index === workflowLine.nodes.length - 1 || node.name === TAIL_NODE_NAME;
+                  const deleteDisabled = !canManageWorkflow || pinned;
+                  return `
                   <tr>
-                    <td><input type="text" value="${escapeHtml(field.label)}" data-process-field-id="${escapeHtml(field.id)}" data-process-field="label" ${canManageWorkflow ? "" : "disabled"} /></td>
-                    <td><select data-process-field-id="${escapeHtml(field.id)}" data-process-field="type" ${canManageWorkflow ? "" : "disabled"}>${PROCESS_FIELD_TYPES.map(([type, label]) => `<option value="${escapeHtml(type)}" ${field.type === type ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select></td>
-                    <td><textarea rows="3" placeholder="一行一个选项" data-process-field-id="${escapeHtml(field.id)}" data-process-field="options" ${canManageWorkflow ? "" : "disabled"}>${escapeHtml(field.options || "")}</textarea></td>
-                    <td><input type="text" value="${escapeHtml(field.placeholder || "")}" data-process-field-id="${escapeHtml(field.id)}" data-process-field="placeholder" ${canManageWorkflow ? "" : "disabled"} /></td>
-                    <td><input type="checkbox" data-process-field-id="${escapeHtml(field.id)}" data-process-field="required" ${field.required ? "checked" : ""} ${canManageWorkflow ? "" : "disabled"} /></td>
-                    <td><button type="button" class="table-action table-action-danger" data-admin-action="delete-process-card-field" data-process-field-id="${escapeHtml(field.id)}" ${canManageWorkflow ? "" : "disabled"}>删除</button></td>
-                  </tr>`).join("")}
+                    <td>${index + 1}</td>
+                    <td><input type="text" value="${escapeHtml(node.name)}" data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="name" ${canManageWorkflow ? "" : "disabled"} /></td>
+                    <td><select data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="ownerRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.ownerRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
+                    <td><select data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="reminderRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.reminderRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
+                    <td><input type="number" min="0" value="${node.cycle}" data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="cycle" ${canManageWorkflow ? "" : "disabled"} /></td>
+                    <td>
+                      <div class="table-action-group">
+                        <button type="button" class="table-action" data-admin-action="move-workflow-node-up" data-workflow-node-id="${escapeHtml(node.id)}" ${upDisabled ? "disabled" : ""}>上移</button>
+                        <button type="button" class="table-action" data-admin-action="move-workflow-node-down" data-workflow-node-id="${escapeHtml(node.id)}" ${downDisabled ? "disabled" : ""}>下移</button>
+                        <button type="button" class="table-action table-action-danger" data-admin-action="delete-workflow-node" data-workflow-node-id="${escapeHtml(node.id)}" title="${escapeHtml(pinned ? "启动和尾印单属于系统节点，可编辑但不建议删除。" : "")}" ${deleteDisabled ? "disabled" : ""}>删除</button>
+                      </div>
+                    </td>
+                  </tr>`;
+                }).join("")}
               </tbody>
             </table>
           </div>
         </section>
-      </div>
-      <div class="table-wrapper">
-        <table>
-          <thead><tr><th>顺序</th><th>节点名称</th><th>默认负责人角色</th><th>默认提醒角色</th><th>标准周期（天）</th><th>操作</th></tr></thead>
-          <tbody>
-            ${workflowLine.nodes.map((node, index) => `
-              <tr>
-                <td>${index + 1}</td>
-                <td><input type="text" value="${escapeHtml(node.name)}" data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="name" ${canManageWorkflow ? "" : "disabled"} /></td>
-                <td><select data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="ownerRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.ownerRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
-                <td><select data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="reminderRole" ${canManageWorkflow ? "" : "disabled"}>${workflowRoles.map((role) => `<option value="${escapeHtml(role.name)}" ${node.reminderRole === role.name ? "selected" : ""}>${escapeHtml(role.name)}</option>`).join("")}</select></td>
-                <td><input type="number" min="0" value="${node.cycle}" data-workflow-node-id="${escapeHtml(node.id)}" data-workflow-field="cycle" ${canManageWorkflow ? "" : "disabled"} /></td>
-                <td>
-                  <div class="table-action-group">
-                    <button type="button" class="table-action" data-admin-action="move-workflow-node-up" data-workflow-node-id="${escapeHtml(node.id)}" ${canManageWorkflow && index > 0 ? "" : "disabled"}>上移</button>
-                    <button type="button" class="table-action" data-admin-action="move-workflow-node-down" data-workflow-node-id="${escapeHtml(node.id)}" ${canManageWorkflow && index < workflowLine.nodes.length - 1 ? "" : "disabled"}>下移</button>
-                    <button type="button" class="table-action table-action-danger" data-admin-action="delete-workflow-node" data-workflow-node-id="${escapeHtml(node.id)}" ${canManageWorkflow ? "" : "disabled"}>删除</button>
-                  </div>
-                </td>
-              </tr>`).join("")}
-        </tbody>
-      </table>
-    </div>`;
+      </div>`;
 }
 
 function renderProcessCardControl(field, value, disabled) {
@@ -3256,26 +3558,32 @@ function renderProcessCardControl(field, value, disabled) {
   return `<input type="text" value="${escapeHtml(value || "")}" ${attr}${placeholder} />`;
 }
 
-function renderProcessCardHtml(project, canEditProject) {
+function renderProcessCardHtml(project, options = {}) {
+  const config = typeof options === "boolean" ? { editable: options } : options;
+  const canEditProject = Boolean(config.editable);
+  const showSaveButton = config.showSaveButton !== false;
   const line = businessLineById(businessLineIdForProject(project));
   const fields = normalizeProcessCardFields(line.processCardFields);
   const values = project.processCardValues || {};
-  return `
-    <section class="detail-card">
-      <div class="table-toolbar">
-        <div>
-          <h3>产品工艺卡</h3>
-          <p class="mini-text">${escapeHtml(line.name)} · 按后台业务线配置生成，字段可以在后台增删。</p>
-        </div>
-        <button type="button" class="button button-secondary" data-drawer-action="save-process-card" ${canEditProject ? "" : "disabled"}>保存工艺卡</button>
-      </div>
-      <div class="process-card-grid">
+  const fieldsHtml = fields.length
+    ? `<div class="process-card-grid">
         ${fields.map((field) => `
           <label class="process-card-field ${field.type === "textarea" ? "field-full" : ""}">
             <span>${escapeHtml(field.label)}${field.required ? " *" : ""}</span>
             ${renderProcessCardControl(field, values[field.id], !canEditProject)}
           </label>`).join("")}
+      </div>`
+    : `<div class="empty-state">当前业务线还没有配置工艺卡字段。</div>`;
+  return `
+    <section class="detail-card ${escapeHtml(config.className || "")}">
+      <div class="table-toolbar">
+        <div>
+          <h3>${escapeHtml(config.heading || "产品工艺卡")}</h3>
+          <p class="mini-text">${escapeHtml(config.description || `${line.name} · 按后台业务线配置生成，字段可以在后台增删。`)}</p>
+        </div>
+        ${showSaveButton ? `<button type="button" class="button button-secondary" data-drawer-action="save-process-card" ${canEditProject ? "" : "disabled"}>保存工艺卡</button>` : ""}
       </div>
+      ${fieldsHtml}
     </section>`;
 }
 
@@ -3476,6 +3784,51 @@ function closeDrawer() {
   renderDrawer();
 }
 
+function renderProcessCardModal() {
+  const project = state.projects.find((item) => item.id === state.processCardQuickProjectId);
+  if (!project) {
+    elements.processCardModal.classList.remove("is-open");
+    elements.processCardModal.setAttribute("aria-hidden", "true");
+    elements.processCardModalTitle.textContent = "产品工艺卡";
+    elements.processCardModalMeta.textContent = "--";
+    elements.processCardModalContent.innerHTML = "";
+    return;
+  }
+  const latestReminder = latestProjectReminder(project);
+  elements.processCardModalTitle.textContent = `${project.title} · 工艺卡`;
+  elements.processCardModalMeta.textContent = `${businessLineName(businessLineIdForProject(project))} · 当前节点：${project.currentNode || "未设置"}`;
+  elements.processCardModalContent.innerHTML = `
+    <section class="detail-card process-card-modal-summary">
+      <div class="overview-grid">
+        <div class="overview-item"><span>项目编号</span><strong>${escapeHtml(project.code)}</strong></div>
+        <div class="overview-item"><span>负责人</span><strong>${escapeHtml(project.owner)}</strong></div>
+      </div>
+      <div class="process-card-modal-reminder">
+        <span>${escapeHtml(latestReminder?.date ? `最新提醒 · ${reminderTimeText(latestReminder.date)}` : "最新提醒")}</span>
+        <strong>${escapeHtml(latestReminderPreviewText(project))}</strong>
+      </div>
+    </section>
+    ${renderProcessCardHtml(project, {
+      editable: false,
+      showSaveButton: false,
+      description: `${businessLineName(businessLineIdForProject(project))} · 在当前界面直接查看工艺卡详情。`,
+      className: "process-card-modal-detail",
+    })}
+  `;
+  elements.processCardModal.classList.add("is-open");
+  elements.processCardModal.setAttribute("aria-hidden", "false");
+}
+
+function openProcessCardModal(projectId) {
+  state.processCardQuickProjectId = projectId;
+  renderProcessCardModal();
+}
+
+function closeProcessCardModal() {
+  state.processCardQuickProjectId = null;
+  renderProcessCardModal();
+}
+
 function openModal(project) {
   if (!hasPermission("编辑项目状态")) return;
   const current = project || null;
@@ -3636,75 +3989,96 @@ function closeAdminModal() {
 }
 
 async function saveProjectFromForm() {
-  if (!hasPermission("编辑项目状态")) return;
-  const now = new Date();
-  const existing = state.projects.find((item) => item.id === elements.formInternalId.value);
-  const status = elements.formStatus.value;
-  const businessLineId = elements.formBusinessLine.value || DEFAULT_BUSINESS_LINE_ID;
-  const currentNode = elements.formCurrentNode.value;
-  const owner = elements.formOwner.value.trim();
-  const reminderDate = dateTimeString(elements.formReminderDate.value || new Date());
-  const reminderPerson = elements.formReminderPerson.value.trim() || owner;
-  const projectId = existing ? existing.id : uid();
-  const reminderNote = elements.formNextAction.value.trim() || "待补充下一步动作";
-  const baseReminders = existing ? normalizeProjectReminders(existing) : [];
-  const hasSameReminder = baseReminders.some((item) => {
-    return item.person === reminderPerson && item.date === reminderDate && item.note === reminderNote && item.status !== "cancelled";
-  });
-  const project = normalizeProject({
-    ...(existing || {}),
-    id: projectId,
-    source: existing ? existing.source : "custom",
-    businessLineId,
-    businessLineName: businessLineName(businessLineId),
-    code: elements.formCode.value.trim(),
-    title: elements.formTitle.value.trim(),
-    author: elements.formAuthor.value.trim(),
-    owner,
-    partner: elements.formPartner.value,
-    status,
-    currentNode,
-    startDate: existing ? existing.startDate : dateString(now),
-    planFinish: elements.formPlanFinish.value,
-    updatedAt: dateTimeString(now),
-    createdAt: existing ? existing.createdAt : dateTimeString(now),
-    summary: elements.formSummary.value.trim(),
-    nextAction: reminderNote,
-    riskNote: elements.formRiskNote.value.trim(),
-    reminders: baseReminders,
-    reminderPerson,
-    reminderDate,
-    nodes: mergeProjectNodes(existing?.nodes, {
-      startDate: existing ? existing.startDate : now,
+  if (!hasPermission("编辑项目状态") || state.projectFormPending) return;
+  state.projectFormPending = true;
+  const submitButton = elements.projectForm.querySelector("button[type='submit']");
+  const originalSubmitText = submitButton?.textContent || "保存项目";
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "保存中";
+  }
+  try {
+    const now = new Date();
+    const existing = state.projects.find((item) => item.id === elements.formInternalId.value);
+    const code = elements.formCode.value.trim();
+    const duplicateProject = state.projects.find((item) => item.id !== existing?.id && item.code === code);
+    if (duplicateProject) {
+      window.alert(`项目编号「${code}」已经存在。请直接编辑原订单，或改成新的项目编号后再保存。`);
+      return;
+    }
+    const status = elements.formStatus.value;
+    const businessLineId = elements.formBusinessLine.value || DEFAULT_BUSINESS_LINE_ID;
+    const currentNode = elements.formCurrentNode.value;
+    const owner = elements.formOwner.value.trim();
+    const reminderDate = dateTimeString(elements.formReminderDate.value || new Date());
+    const reminderPerson = elements.formReminderPerson.value.trim() || owner;
+    const projectId = existing ? existing.id : uid();
+    const reminderNote = elements.formNextAction.value.trim() || "待补充下一步动作";
+    const baseReminders = existing ? normalizeProjectReminders(existing) : [];
+    const hasSameReminder = baseReminders.some((item) => {
+      return item.person === reminderPerson && item.date === reminderDate && item.note === reminderNote && item.status !== "cancelled";
+    });
+    const project = normalizeProject({
+      ...(existing || {}),
+      id: projectId,
+      source: existing ? existing.source : "custom",
+      businessLineId,
+      businessLineName: businessLineName(businessLineId),
+      code,
+      title: elements.formTitle.value.trim(),
+      author: elements.formAuthor.value.trim(),
       owner,
+      partner: elements.formPartner.value,
       status,
       currentNode,
+      startDate: existing ? existing.startDate : dateString(now),
+      planFinish: elements.formPlanFinish.value,
+      updatedAt: dateTimeString(now),
+      createdAt: existing ? existing.createdAt : dateTimeString(now),
+      summary: elements.formSummary.value.trim(),
+      nextAction: reminderNote,
+      riskNote: elements.formRiskNote.value.trim(),
+      reminders: baseReminders,
       reminderPerson,
       reminderDate,
-      blockedNode: status === "已暂停" ? currentNode : "",
-      businessLineId,
-    }),
-    followUps: [{ time: dateTimeString(now), user: owner, progress: existing ? "更新了项目信息" : "创建了项目", nextAction: reminderNote }, ...(existing?.followUps || [])],
-    logs: [{ time: dateTimeString(now), actor: owner, action: existing ? "编辑项目" : "创建项目", detail: `状态为「${status}」，当前节点为「${currentNode}」。` }, ...(existing?.logs || [])],
-  });
-  if (!hasSameReminder) {
-    appendProjectReminder(project, {
-      person: reminderPerson,
-      date: reminderDate,
-      note: reminderNote,
-      actor: owner,
-      source: existing ? "后台编辑" : "后台创建",
-      recordAt: dateTimeString(now),
-      createdAt: now.toISOString(),
+      nodes: mergeProjectNodes(existing?.nodes, {
+        startDate: existing ? existing.startDate : now,
+        owner,
+        status,
+        currentNode,
+        reminderPerson,
+        reminderDate,
+        blockedNode: status === "已暂停" ? currentNode : "",
+        businessLineId,
+      }),
+      followUps: [{ time: dateTimeString(now), user: owner, progress: existing ? "更新了项目信息" : "创建了项目", nextAction: reminderNote }, ...(existing?.followUps || [])],
+      logs: [{ time: dateTimeString(now), actor: owner, action: existing ? "编辑项目" : "创建项目", detail: `状态为「${status}」，当前节点为「${currentNode}」。` }, ...(existing?.logs || [])],
     });
-  } else {
-    syncProjectReminderFields(project);
+    if (!hasSameReminder) {
+      appendProjectReminder(project, {
+        person: reminderPerson,
+        date: reminderDate,
+        note: reminderNote,
+        actor: owner,
+        source: existing ? "后台编辑" : "后台创建",
+        recordAt: dateTimeString(now),
+        createdAt: now.toISOString(),
+      });
+    } else {
+      syncProjectReminderFields(project);
+    }
+    state.projects = existing ? state.projects.map((item) => (item.id === project.id ? project : item)) : [project, ...state.projects];
+    saveProjects();
+    await flushRemoteSync();
+    closeModal();
+    render();
+  } finally {
+    state.projectFormPending = false;
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalSubmitText;
+    }
   }
-  state.projects = existing ? state.projects.map((item) => (item.id === project.id ? project : item)) : [project, ...state.projects];
-  saveProjects();
-  await flushRemoteSync();
-  closeModal();
-  render();
 }
 
 function resetFilters() {
@@ -4115,6 +4489,10 @@ async function resetMemberPassword(memberId) {
 }
 
 async function savePublicReminderFromForm(form) {
+  if (!canCreatePublicReminder()) {
+    window.alert("当前身份不能新增公共提醒。");
+    return;
+  }
   const formData = new FormData(form);
   const person = String(formData.get("person") || "").trim();
   const date = normalizeReminderDateValue(String(formData.get("date") || "").trim());
@@ -4128,7 +4506,7 @@ async function savePublicReminderFromForm(form) {
     date,
     note,
     actor: currentUser().name,
-    source: "后台公共提醒",
+    source: state.currentView === "board" ? "前台公共提醒" : "后台公共提醒",
     recordAt: dateTimeString(new Date()),
     confirmable: true,
   });
@@ -4141,13 +4519,6 @@ async function savePublicReminderFromForm(form) {
 async function completeReminderFromAdmin(scope, reminderId, projectId) {
   const completedAt = new Date().toISOString();
   const completedBy = currentUser().name || "后台管理员";
-  const completionNote = window.prompt("请填写完成说明或进展备注，例如合同是否已签、电话沟通进展、下一步还要做什么：", "");
-  if (completionNote === null) return;
-  const cleanCompletionNote = completionNote.trim();
-  if (!cleanCompletionNote) {
-    window.alert("确认完成前必须填写说明。");
-    return;
-  }
   let reminder = null;
   let project = null;
 
@@ -4157,26 +4528,39 @@ async function completeReminderFromAdmin(scope, reminderId, projectId) {
     project.reminders = normalizeProjectReminders(project);
     reminder = project.reminders.find((item) => item.id === reminderId);
     if (!reminder) return;
-    reminder.status = "completed";
-    reminder.pending = false;
-    reminder.completedAt = completedAt;
-    reminder.completedBy = completedBy;
-    reminder.completionNote = cleanCompletionNote;
+  } else {
+    state.publicReminders = normalizePublicReminders(state.publicReminders);
+    reminder = state.publicReminders.find((item) => item.id === reminderId);
+    if (!reminder) return;
+  }
+
+  const row = { scope, project, reminder };
+  if (!canCompleteReminderRow(row)) {
+    window.alert("当前身份只能处理自己负责、自己发起，或自己项目下的提醒。");
+    return;
+  }
+
+  const completionNote = window.prompt("请填写完成说明或进展备注，例如合同是否已签、电话沟通进展、下一步还要做什么：", "");
+  if (completionNote === null) return;
+  const cleanCompletionNote = completionNote.trim();
+  if (!cleanCompletionNote) {
+    window.alert("确认完成前必须填写说明。");
+    return;
+  }
+
+  reminder.status = "completed";
+  reminder.pending = false;
+  reminder.completedAt = completedAt;
+  reminder.completedBy = completedBy;
+  reminder.completionNote = cleanCompletionNote;
+
+  if (scope === "project" && project) {
     project.logs = [
       { time: dateTimeString(new Date()), actor: completedBy, action: "提醒完成确认", detail: `${reminder.person}：${reminder.note}；说明：${cleanCompletionNote}` },
       ...(Array.isArray(project.logs) ? project.logs : []),
     ].slice(0, 100);
     syncProjectReminderFields(project);
     saveProjects();
-  } else {
-    state.publicReminders = normalizePublicReminders(state.publicReminders);
-    reminder = state.publicReminders.find((item) => item.id === reminderId);
-    if (!reminder) return;
-    reminder.status = "completed";
-    reminder.pending = false;
-    reminder.completedAt = completedAt;
-    reminder.completedBy = completedBy;
-    reminder.completionNote = cleanCompletionNote;
   }
 
   state.pushLogs = (Array.isArray(state.pushLogs) ? state.pushLogs : []).map((log) => {
@@ -4198,6 +4582,10 @@ async function completeReminderFromAdmin(scope, reminderId, projectId) {
 }
 
 async function deletePushLog(logId) {
+  if (!canManagePushLogs()) {
+    window.alert("当前身份只能查看推送记录，不能删除留痕。");
+    return;
+  }
   const log = (Array.isArray(state.pushLogs) ? state.pushLogs : []).find((item) => item.id === logId);
   if (!log) return;
   const confirmed = window.confirm(`确定删除这条推送记录吗？\n接收人：${log.receiver || "未设置"}\n推送时间：${formatPushLogTime(log.pushedAt)}`);
@@ -4209,6 +4597,10 @@ async function deletePushLog(logId) {
 }
 
 async function clearPushLogs() {
+  if (!canManagePushLogs()) {
+    window.alert("当前身份只能查看推送记录，不能清空留痕。");
+    return;
+  }
   const count = Array.isArray(state.pushLogs) ? state.pushLogs.length : 0;
   if (!count) return;
   const confirmed = window.confirm(`确定清空全部 ${count} 条推送记录吗？这个操作不会删除订单和提醒任务，但推送留痕会被清掉。`);
@@ -4300,7 +4692,7 @@ function rebuildProjectsForBusinessLine(businessLineId) {
   state.projects = state.projects.map((project) => {
     if (businessLineIdForProject(project) !== businessLineId) return project;
     const nodeNames = workflowNodeNamesForBusinessLine(businessLineId);
-    const currentNode = nodeNames.includes(project.currentNode) ? project.currentNode : nodeNames[0];
+    const currentNode = canonicalCurrentNode(project.status, project.currentNode, businessLineId);
     return normalizeProject({
       ...project,
       businessLineId,
@@ -4364,7 +4756,9 @@ async function deleteBusinessLine(lineId) {
 
 async function addWorkflowNode() {
   if (!hasPermission("管理流程节点")) return;
-  const line = businessLineById(state.selectedWorkflowLineId);
+  const draft = selectedBusinessLineDraft();
+  if (!draft) return;
+  const { index, line } = draft;
   const names = new Set(line.nodes.map((node) => node.name));
   let nextIndex = line.nodes.length + 1;
   let nextName = `新节点 ${nextIndex}`;
@@ -4379,7 +4773,7 @@ async function addWorkflowNode() {
     reminderRole: roleOptions().find((role) => role.key === "manager")?.name || "项目主管",
     cycle: 3,
   });
-  syncWorkflowConfigCache();
+  commitBusinessLineDraft(index, line);
   saveSettings();
   await flushRemoteSync();
   render();
@@ -4387,9 +4781,15 @@ async function addWorkflowNode() {
 
 async function deleteWorkflowNode(nodeId) {
   if (!hasPermission("管理流程节点")) return;
-  const line = businessLineById(state.selectedWorkflowLineId);
+  const draft = selectedBusinessLineDraft();
+  if (!draft) return;
+  const { index, line } = draft;
   const node = line.nodes.find((item) => item.id === nodeId);
   if (!node) return;
+  if (isPinnedWorkflowNode(node)) {
+    window.alert("「启动」和「尾印单」现在已经放到后台作为系统节点，可编辑但不能删除。");
+    return;
+  }
   if (line.nodes.length <= 1) {
     window.alert("每条业务线至少需要保留 1 个流程节点。");
     return;
@@ -4398,7 +4798,7 @@ async function deleteWorkflowNode(nodeId) {
   const confirmed = window.confirm(`确定删除节点「${node.name}」吗？${projectCount ? "相关项目会改到该业务线的第一个节点。" : ""}`);
   if (!confirmed) return;
   line.nodes = line.nodes.filter((item) => item.id !== nodeId);
-  syncWorkflowConfigCache();
+  commitBusinessLineDraft(index, line);
   rebuildProjectsForBusinessLine(line.id);
   saveProjects();
   saveSettings();
@@ -4408,47 +4808,105 @@ async function deleteWorkflowNode(nodeId) {
 
 async function moveWorkflowNode(nodeId, direction) {
   if (!hasPermission("管理流程节点")) return;
-  const line = businessLineById(state.selectedWorkflowLineId);
-  const index = line.nodes.findIndex((node) => node.id === nodeId);
-  const targetIndex = direction === "up" ? index - 1 : index + 1;
-  if (index < 0 || targetIndex < 0 || targetIndex >= line.nodes.length) return;
-  const [node] = line.nodes.splice(index, 1);
-  line.nodes.splice(targetIndex, 0, node);
-  syncWorkflowConfigCache();
+  const draft = selectedBusinessLineDraft();
+  if (!draft) return;
+  const { index: lineIndex, line } = draft;
+  const nodeIndex = line.nodes.findIndex((node) => node.id === nodeId);
+  const node = line.nodes[nodeIndex];
+  if (!node) return;
+  if ((node.name === START_NODE_NAME && direction === "up") || (node.name === TAIL_NODE_NAME && direction === "down")) return;
+  const targetIndex = direction === "up" ? nodeIndex - 1 : nodeIndex + 1;
+  if (nodeIndex < 0 || targetIndex < 0 || targetIndex >= line.nodes.length) return;
+  const [movedNode] = line.nodes.splice(nodeIndex, 1);
+  line.nodes.splice(targetIndex, 0, movedNode);
+  commitBusinessLineDraft(lineIndex, line);
   saveSettings();
   await flushRemoteSync();
   render();
 }
 
+function updateWorkflowLineFieldFromInput(target) {
+  const draft = selectedBusinessLineDraft();
+  if (!draft) return false;
+  const { index, line } = draft;
+  const field = textValue(target.dataset.workflowLineField);
+  if (!field) return false;
+  line[field] = String(target.value || "").trim();
+  commitBusinessLineDraft(index, line);
+  saveSettings();
+  return true;
+}
+
+function updateWorkflowNodeFieldFromInput(target) {
+  const draft = selectedBusinessLineDraft();
+  if (!draft) return false;
+  const { index, line } = draft;
+  const item = line.nodes.find((node) => node.id === target.dataset.workflowNodeId);
+  if (!item) return false;
+  if (target.dataset.workflowField === "name") {
+    const previousName = item.name;
+    const nextName = String(target.value || "").trim();
+    if (!nextName) {
+      target.value = previousName;
+      return false;
+    }
+    const duplicate = line.nodes.some((node) => node.id !== item.id && node.name === nextName);
+    if (duplicate) {
+      window.alert("这条业务线里已经有同名节点。");
+      target.value = previousName;
+      return false;
+    }
+    if (previousName !== nextName) {
+      renameWorkflowNodeAcrossProjects(line.id, previousName, nextName);
+      item.name = nextName;
+      saveProjects();
+    }
+  } else {
+    item[target.dataset.workflowField] = target.dataset.workflowField === "cycle" ? Math.max(0, Number(target.value) || 0) : String(target.value || "").trim();
+  }
+  commitBusinessLineDraft(index, line);
+  saveSettings();
+  return true;
+}
+
 function updateProcessCardFieldFromInput(target) {
-  const line = businessLineById(state.selectedWorkflowLineId);
+  const draft = selectedBusinessLineDraft();
+  if (!draft) return false;
+  const { index, line } = draft;
   line.processCardFields = normalizeProcessCardFields(line.processCardFields);
   const item = line.processCardFields.find((field) => field.id === target.dataset.processFieldId);
-  if (!item) return;
+  if (!item) return false;
   const fieldName = target.dataset.processField;
   if (fieldName === "label") {
     const nextLabel = String(target.value || "").trim();
     if (!nextLabel) {
       target.value = item.label;
-      return;
+      return false;
     }
     item.label = nextLabel;
-    return;
+    commitBusinessLineDraft(index, line);
+    return true;
   }
   if (fieldName === "required") {
     item.required = target.checked;
-    return;
+    commitBusinessLineDraft(index, line);
+    return true;
   }
   if (fieldName === "type") {
     item.type = PROCESS_FIELD_TYPES.some(([type]) => type === target.value) ? target.value : "text";
-    return;
+    commitBusinessLineDraft(index, line);
+    return true;
   }
   item[fieldName] = String(target.value || "").trim();
+  commitBusinessLineDraft(index, line);
+  return true;
 }
 
 async function addProcessCardField() {
   if (!hasPermission("管理流程节点")) return;
-  const line = businessLineById(state.selectedWorkflowLineId);
+  const draft = selectedBusinessLineDraft();
+  if (!draft) return;
+  const { index, line } = draft;
   line.processCardFields = normalizeProcessCardFields(line.processCardFields);
   const nextIndex = line.processCardFields.length + 1;
   line.processCardFields.push({
@@ -4459,6 +4917,7 @@ async function addProcessCardField() {
     required: false,
     placeholder: "",
   });
+  commitBusinessLineDraft(index, line);
   saveSettings();
   await flushRemoteSync();
   render();
@@ -4466,18 +4925,31 @@ async function addProcessCardField() {
 
 async function deleteProcessCardField(fieldId) {
   if (!hasPermission("管理流程节点")) return;
-  const line = businessLineById(state.selectedWorkflowLineId);
+  const draft = selectedBusinessLineDraft();
+  if (!draft) return;
+  const { index, line } = draft;
   const field = line.processCardFields.find((item) => item.id === fieldId);
   if (!field) return;
   const confirmed = window.confirm(`确定删除工艺字段「${field.label}」吗？相关订单里这个字段已填写的内容也会一起移除。`);
   if (!confirmed) return;
   line.processCardFields = line.processCardFields.filter((item) => item.id !== fieldId);
+  commitBusinessLineDraft(index, line);
   state.projects = state.projects.map((project) => {
     if (businessLineIdForProject(project) !== line.id) return project;
     const values = { ...(project.processCardValues || {}) };
     delete values[fieldId];
     return { ...project, processCardValues: values };
   });
+  saveProjects();
+  saveSettings();
+  await flushRemoteSync();
+  render();
+}
+
+async function saveWorkflowConfiguration() {
+  if (!hasPermission("管理流程节点")) return;
+  const draft = selectedBusinessLineDraft();
+  if (draft) commitBusinessLineDraft(draft.index, draft.line);
   saveProjects();
   saveSettings();
   await flushRemoteSync();
@@ -4518,10 +4990,13 @@ function render() {
   renderUrgentList(projects);
   renderBoard(projects);
   renderPersonBoard(projects);
+  renderFrontWorkspaceNav();
+  renderFrontWorkspaceContent();
   renderAdminSummary();
   renderAdminNav();
   renderAdminContent();
   renderDrawer();
+  renderProcessCardModal();
 }
 
 function attachEvents() {
@@ -4621,6 +5096,11 @@ function attachEvents() {
   });
 
   elements.boardGrid.addEventListener("click", (event) => {
+    const processButton = event.target.closest("[data-board-action='open-process-card']");
+    if (processButton) {
+      openProcessCardModal(processButton.dataset.projectId);
+      return;
+    }
     const button = event.target.closest("[data-open-project]");
     if (button) openProject(button.dataset.openProject);
   });
@@ -4638,24 +5118,33 @@ function attachEvents() {
     render();
   });
 
-  elements.adminContent.addEventListener("click", (event) => {
-    const aiPromptButton = event.target.closest("[data-ai-prompt]");
-    if (aiPromptButton) {
-      void sendAiChatMessage(aiPromptButton.dataset.aiPrompt);
-      return;
-    }
-    const aiRiskButton = event.target.closest("[data-ai-risk-action]");
-    if (aiRiskButton) {
-      void generateAiRiskAssessment();
-      return;
-    }
-    const button = event.target.closest("[data-admin-action]");
+  elements.frontWorkspaceNav.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-front-tab]");
+    if (!button) return;
+    if (!allowedFrontWorkspaceTabs().includes(button.dataset.frontTab)) return;
+    state.frontWorkspaceTab = button.dataset.frontTab;
+    render();
+  });
+
+  const attachWorkspacePanelEvents = (container) => {
+    container.addEventListener("click", (event) => {
+      const aiPromptButton = event.target.closest("[data-ai-prompt]");
+      if (aiPromptButton) {
+        void sendAiChatMessage(aiPromptButton.dataset.aiPrompt);
+        return;
+      }
+      const aiRiskButton = event.target.closest("[data-ai-risk-action]");
+      if (aiRiskButton) {
+        void generateAiRiskAssessment();
+        return;
+      }
       const reminderTab = event.target.closest("[data-reminder-tab]");
       if (reminderTab) {
         state.reminderFilters.tab = reminderTab.dataset.reminderTab || "all";
         render();
         return;
       }
+      const button = event.target.closest("[data-admin-action]");
       if (!button) return;
       if (button.dataset.adminAction === "add-user") openAdminModal("user", null);
       if (button.dataset.adminAction === "edit-user") openAdminModal("user", { id: button.dataset.memberId });
@@ -4673,6 +5162,7 @@ function attachEvents() {
       if (button.dataset.adminAction === "add-business-line") openAdminModal("businessLine", "");
       if (button.dataset.adminAction === "edit-business-line") openAdminModal("businessLine", button.dataset.businessLineId);
       if (button.dataset.adminAction === "delete-business-line") void deleteBusinessLine(button.dataset.businessLineId);
+      if (button.dataset.adminAction === "save-workflow-config") void saveWorkflowConfiguration();
       if (button.dataset.adminAction === "add-workflow-node") void addWorkflowNode();
       if (button.dataset.adminAction === "delete-workflow-node") void deleteWorkflowNode(button.dataset.workflowNodeId);
       if (button.dataset.adminAction === "move-workflow-node-up") void moveWorkflowNode(button.dataset.workflowNodeId, "up");
@@ -4684,119 +5174,126 @@ function attachEvents() {
       if (button.dataset.adminAction === "clear-push-logs") void clearPushLogs();
     });
 
-  elements.adminContent.addEventListener("change", (event) => {
-    const target = event.target;
-    if (target.dataset.reminderFilter) {
-      state.reminderFilters[target.dataset.reminderFilter] = target.value;
-      render();
-      return;
-    }
-    if (target.dataset.confirmablePushEnabled !== undefined) {
-      state.confirmablePushEnabled = target.checked;
-      saveSettings();
-      void flushRemoteSync();
-      render();
-      return;
-    }
-    if (target.dataset.permissionIndex) {
-      if (!hasPermission("管理权限")) return;
-      const row = state.permissionRows[Number(target.dataset.permissionIndex)];
-      row.values[target.dataset.permissionRole] = target.checked ? "是" : "否";
-      saveSettings();
-      return;
-    }
-    if (target.dataset.workflowLineSelect !== undefined) {
-      if (!hasPermission("管理流程节点")) return;
-      state.selectedWorkflowLineId = target.value;
-      saveSettings();
-      render();
-      return;
-    }
-    if (target.dataset.workflowLineField) {
-      if (!hasPermission("管理流程节点")) return;
-      const line = businessLineById(state.selectedWorkflowLineId);
-      line[target.dataset.workflowLineField] = String(target.value || "").trim();
-      saveSettings();
-      return;
-    }
-    if (target.dataset.riskConfigField) {
-      if (!hasPermission("管理流程节点")) return;
-      const line = businessLineById(state.selectedWorkflowLineId);
-      line.riskConfig = normalizeRiskConfig(line.riskConfig);
-      const field = target.dataset.riskConfigField;
-      line.riskConfig[field] = field === "enabled" ? target.checked : String(target.value || "").trim();
-      saveSettings();
-      void flushRemoteSync();
-      return;
-    }
-    if (target.dataset.processFieldId && target.dataset.processField) {
-      if (!hasPermission("管理流程节点")) return;
-      updateProcessCardFieldFromInput(target);
-      saveSettings();
-      void flushRemoteSync();
-      return;
-    }
-    if (target.dataset.workflowNodeId) {
-      if (!hasPermission("管理流程节点")) return;
-      const line = businessLineById(state.selectedWorkflowLineId);
-      const item = line.nodes.find((node) => node.id === target.dataset.workflowNodeId);
-      if (!item) return;
-      if (target.dataset.workflowField === "name") {
-        const nextName = String(target.value || "").trim();
-        if (!nextName) {
-          target.value = item.name;
-          return;
-        }
-        const duplicate = line.nodes.some((node) => node.id !== item.id && node.name === nextName);
-        if (duplicate) {
-          window.alert("这条业务线里已经有同名节点。");
-          target.value = item.name;
-          return;
-        }
-        if (item.name !== nextName) renameWorkflowNodeAcrossProjects(line.id, item.name, nextName);
-        item.name = nextName;
-        saveProjects();
-      } else {
-        item[target.dataset.workflowField] = target.dataset.workflowField === "cycle" ? Math.max(0, Number(target.value) || 0) : target.value;
+    container.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target.dataset.reminderFilter) {
+        state.reminderFilters[target.dataset.reminderFilter] = target.value;
+        render();
+        return;
       }
-      syncWorkflowConfigCache();
-      saveSettings();
-      void flushRemoteSync();
-    }
-  });
+      if (target.dataset.confirmablePushEnabled !== undefined) {
+        state.confirmablePushEnabled = target.checked;
+        saveSettings();
+        void flushRemoteSync();
+        render();
+        return;
+      }
+      if (target.dataset.permissionIndex) {
+        if (!hasPermission("管理权限")) return;
+        const row = state.permissionRows[Number(target.dataset.permissionIndex)];
+        row.values[target.dataset.permissionRole] = target.checked ? "是" : "否";
+        saveSettings();
+        void flushRemoteSync();
+        render();
+        return;
+      }
+      if (target.dataset.workflowLineSelect !== undefined) {
+        if (!hasPermission("管理流程节点")) return;
+        state.selectedWorkflowLineId = target.value;
+        saveSettings();
+        render();
+        return;
+      }
+      if (target.dataset.workflowLineField) {
+        if (!hasPermission("管理流程节点")) return;
+        updateWorkflowLineFieldFromInput(target);
+        void flushRemoteSync();
+        render();
+        return;
+      }
+      if (target.dataset.riskConfigField) {
+        if (!hasPermission("管理流程节点")) return;
+        const draft = selectedBusinessLineDraft();
+        if (!draft) return;
+        const { index, line } = draft;
+        line.riskConfig = normalizeRiskConfig(line.riskConfig);
+        const field = target.dataset.riskConfigField;
+        line.riskConfig[field] = field === "enabled" ? target.checked : String(target.value || "").trim();
+        commitBusinessLineDraft(index, line);
+        saveSettings();
+        void flushRemoteSync();
+        return;
+      }
+      if (target.dataset.processFieldId && target.dataset.processField) {
+        if (!hasPermission("管理流程节点")) return;
+        updateProcessCardFieldFromInput(target);
+        saveSettings();
+        void flushRemoteSync();
+        return;
+      }
+      if (target.dataset.workflowNodeId) {
+        if (!hasPermission("管理流程节点")) return;
+        updateWorkflowNodeFieldFromInput(target);
+        void flushRemoteSync();
+        render();
+        return;
+      }
+    });
 
-  elements.adminContent.addEventListener("input", (event) => {
-    const target = event.target;
-    if (!target.dataset.reminderFilter) return;
-    state.reminderFilters[target.dataset.reminderFilter] = target.value;
-    clearTimeout(state.reminderFilterTimer);
-    state.reminderFilterTimer = setTimeout(render, 250);
-  });
+    container.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!target.dataset.reminderFilter) return;
+      state.reminderFilters[target.dataset.reminderFilter] = target.value;
+      clearTimeout(state.reminderFilterTimer);
+      state.reminderFilterTimer = setTimeout(render, 250);
+    });
 
-  elements.adminContent.addEventListener("submit", (event) => {
-    if (event.target.id === "aiConfigForm") {
-      event.preventDefault();
-      void saveAiSettingsFromForm(event.target);
-      return;
-    }
-    if (event.target.id === "aiChatForm") {
-      event.preventDefault();
-      const formData = new FormData(event.target);
-      const message = String(formData.get("message") || "").trim();
-      event.target.reset();
-      void sendAiChatMessage(message);
-      return;
-    }
-    if (event.target.id === "aiVisionForm") {
-      event.preventDefault();
-      void recognizeQualityImage(event.target);
-      return;
-    }
-    if (event.target.id === "publicReminderForm") {
-      event.preventDefault();
-      void savePublicReminderFromForm(event.target);
-    }
-  });
+    container.addEventListener("focusout", (event) => {
+      const target = event.target;
+      if (!target?.dataset) return;
+      if (target.dataset.workflowNodeId && target.dataset.workflowField === "name") {
+        if (!hasPermission("管理流程节点")) return;
+        updateWorkflowNodeFieldFromInput(target);
+        void flushRemoteSync();
+        render();
+        return;
+      }
+      if (target.dataset.workflowLineField) {
+        if (!hasPermission("管理流程节点")) return;
+        updateWorkflowLineFieldFromInput(target);
+        void flushRemoteSync();
+        render();
+      }
+    });
+
+    container.addEventListener("submit", (event) => {
+      if (event.target.id === "aiConfigForm") {
+        event.preventDefault();
+        void saveAiSettingsFromForm(event.target);
+        return;
+      }
+      if (event.target.id === "aiChatForm") {
+        event.preventDefault();
+        const formData = new FormData(event.target);
+        const message = String(formData.get("message") || "").trim();
+        event.target.reset();
+        void sendAiChatMessage(message);
+        return;
+      }
+      if (event.target.id === "aiVisionForm") {
+        event.preventDefault();
+        void recognizeQualityImage(event.target);
+        return;
+      }
+      if (event.target.id === "publicReminderForm") {
+        event.preventDefault();
+        void savePublicReminderFromForm(event.target);
+      }
+    });
+  };
+
+  attachWorkspacePanelEvents(elements.adminContent);
+  attachWorkspacePanelEvents(elements.frontWorkspaceContent);
 
   elements.drawerContent.addEventListener("click", (event) => {
     const button = event.target.closest("[data-drawer-action]");
@@ -4805,6 +5302,8 @@ function attachEvents() {
 
   elements.drawerBackdrop.addEventListener("click", closeDrawer);
   elements.drawerCloseButton.addEventListener("click", closeDrawer);
+  elements.processCardModalBackdrop.addEventListener("click", closeProcessCardModal);
+  elements.processCardModalCloseButton.addEventListener("click", closeProcessCardModal);
   elements.modalBackdrop.addEventListener("click", closeModal);
   elements.modalCloseButton.addEventListener("click", closeModal);
   elements.modalCancelButton.addEventListener("click", closeModal);
